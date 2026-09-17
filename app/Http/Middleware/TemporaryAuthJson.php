@@ -6,7 +6,7 @@ use Closure;
 use Illuminate\Http\Request;
 use Osiset\ShopifyApp\Exceptions\HttpException as ShopifyHttpException;
 
-/** TEMPORARY: normalizes package auth failures for the diagnostic API route. */
+/** TEMPORARY: normalizes package auth failures for the diagnostic JSON route. */
 class TemporaryAuthJson
 {
     public function handle(Request $request, Closure $next)

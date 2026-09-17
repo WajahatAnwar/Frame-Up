@@ -1,6 +1,7 @@
 # Frame Up Shopify App
 
-This is a Laravel 13 embedded Shopify app using `kyon147/laravel-shopify`.
+This is a Laravel 13 embedded Shopify app using `kyon147/laravel-shopify`,
+Inertia, and React.
 
 ## Resolved environment
 
@@ -63,13 +64,17 @@ Do not use a local HTTP URL in Shopify. In Shopify Partner Dashboard, configure:
 - Allowed redirection URL: `https://YOUR_PUBLIC_ORIGIN/authenticate`
 - Token callback used by the package: `https://YOUR_PUBLIC_ORIGIN/authenticate/token`
 
-The package also registers `GET /`, `GET|POST /authenticate`, billing routes, and
-`POST /webhook/{type}`. Confirm exact names and middleware with `artisan route:list`.
+The application owns `GET /` as an Inertia React route protected by
+`verify.shopify` and `billable`. The package continues to own `GET|POST /authenticate`,
+`GET /authenticate/token`, billing routes, and `POST /webhook/{type}`. The
+`SHOPIFY_MANUAL_ROUTES=home` setting disables only the package's default Blade home.
+Confirm exact names and middleware with `artisan route:list -v`.
 
-The app uses the package's MPA embedded flow. The main page loads Shopify App Bridge,
-obtains a fresh `window.shopify.sessionToken.getToken()` immediately before the button
-request, and sends it as `Authorization: Bearer ...` to the same-origin diagnostic route.
-The token is not persisted in storage, cookies, HTML, or URLs.
+The app uses the package's SPA embedded flow. The Inertia root view loads Shopify
+App Bridge. Every Inertia visit obtains a fresh `shopify.idToken()` through Inertia's
+request hook, while native diagnostic fetches obtain their own fresh token immediately
+before the request. Both send `Authorization: Bearer ...`; tokens are never persisted
+in storage, cookies, HTML, or URLs.
 
 ## Checks
 
@@ -84,11 +89,11 @@ npm run build
 
 ## Remove the temporary authentication check
 
-Delete `app/Http/Controllers/TemporaryAuthCheckController.php`,
-`tests/Feature/TemporaryAuthCheckTest.php`, and
-`resources/views/vendor/shopify-app/home/index.blade.php`; remove the
-`temporary.auth.check` route from `routes/api.php`; and remove the
-`temporary-auth` rate limiter from `app/Providers/AppServiceProvider.php`.
+Delete `app/Http/Controllers/TemporaryAuthCheckController.php` and
+`tests/Feature/TemporaryAuthCheckTest.php`; remove the `temporary.auth.check`
+route from `routes/web.php`; remove the diagnostic UI and `authenticatedFetch`
+usage from `resources/js/Pages/Home.jsx`; and remove the `temporary-auth` rate
+limiter from `app/Providers/AppServiceProvider.php`.
 Also remove the `temporary.auth.json` alias from `bootstrap/app.php` and
 `app/Http/Middleware/TemporaryAuthJson.php`.
 

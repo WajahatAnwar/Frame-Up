@@ -13,15 +13,15 @@ class TemporaryAuthCheckTest extends TestCase
 
     public function test_missing_token_is_rejected_as_json(): void
     {
-        $response = $this->getJson('/api/temporary-auth-check');
+        $response = $this->getJson('/temporary-auth-check');
 
-        $response->assertForbidden()->assertJsonStructure(['error']);
+        $response->assertUnauthorized()->assertJsonStructure(['error']);
     }
 
     public function test_invalid_token_is_rejected_as_json(): void
     {
         $response = $this->withHeader('Authorization', 'Bearer not-a-shopify-token')
-            ->getJson('/api/temporary-auth-check');
+            ->getJson('/temporary-auth-check');
 
         $response->assertUnauthorized()->assertJson([
             'error' => 'Shopify session token is missing or invalid.',
@@ -37,7 +37,7 @@ class TemporaryAuthCheckTest extends TestCase
 
         $response = $this->withoutMiddleware(VerifyShopify::class)
             ->actingAs($shop)
-            ->getJson('/api/temporary-auth-check');
+            ->getJson('/temporary-auth-check');
 
         $response->assertOk()
             ->assertJsonStructure(['ok', 'message', 'shop', 'server_time'])
