@@ -131,6 +131,10 @@ return [
     |
     */
 
-    'serializable_classes' => false,
+    // kyon147/laravel-shopify caches the authenticated shop User model in
+    // IframeProtection; allow only this application model to be restored.
+    'serializable_classes' => [
+        App\Models\User::class,
+    ],
 
 ];

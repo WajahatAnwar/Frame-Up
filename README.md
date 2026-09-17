@@ -98,6 +98,7 @@ Also remove the `temporary.auth.json` alias from `bootstrap/app.php` and
 - Missing extension: enable it in the selected MAMP PHP `php.ini`, then re-run Composer checks.
 - Redirect or iframe/CSP failure: ensure every Shopify URL matches the public HTTPS origin and let the package's iframe middleware run.
 - Invalid/expired session token: open the app from Shopify Admin and reload; never put the token in a URL.
+- Incomplete `App\\Models\\User` object in `IframeProtection`: Laravel 13 restricts cache unserialization by default. Keep `App\\Models\\User::class` in `config/cache.php` under `serializable_classes`, then run `php artisan optimize:clear` after changing the model or cache configuration.
 - Mixed content/proxy HTTPS: use HTTPS for the tunnel and configure only the tunnel's trusted proxy if needed.
 - Database failure: start MAMP and verify host, port, database, username, and password; SQLite is the default local fallback.
 
