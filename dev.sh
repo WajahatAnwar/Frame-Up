@@ -34,6 +34,13 @@ direnv exec . php artisan serve \
     --no-reload &
 process_ids+=("$!")
 
+echo "Starting Laravel queue listener..."
+direnv exec . php artisan queue:listen \
+    --sleep=1 \
+    --timeout=120 \
+    --tries=3 &
+process_ids+=("$!")
+
 echo "Starting Vite with tunnel-aware HMR..."
 npm run dev &
 process_ids+=("$!")

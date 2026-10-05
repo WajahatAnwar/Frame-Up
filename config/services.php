@@ -35,4 +35,9 @@ return [
         ],
     ],
 
+    'frame_up_source' => [
+        'url' => env('FRAME_UP_SOURCE_URL'),
+        'key' => env('FRAME_UP_API_KEY'),
+    ],
+
 ];

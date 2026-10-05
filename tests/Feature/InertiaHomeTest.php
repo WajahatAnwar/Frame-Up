@@ -13,7 +13,7 @@ class InertiaHomeTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_home_route_renders_the_inertia_react_page_for_a_verified_shop(): void
+    public function test_home_route_renders_the_dashboard_for_a_verified_shop(): void
     {
         $shop = User::factory()->create([
             'name' => 'inertia-shop.myshopify.com',
@@ -26,12 +26,28 @@ class InertiaHomeTest extends TestCase
             ->get('/?shop=inertia-shop.myshopify.com&host=test-host');
 
         $response->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->component('Home')
-            ->where('shop.domain', 'inertia-shop.myshopify.com')
-            ->where('embeddedContext.shop', 'inertia-shop.myshopify.com')
-            ->where('embeddedContext.host', 'test-host')
-            ->where('temporaryAuthCheckUrl', '/temporary-auth-check')
+            ->component('Dashboard')
+            ->where('stats.configurations', 0)
+            ->where('stats.printTypes', 0)
+            ->where('indexUrl', '/configurations')
+            ->where('createUrl', '/configurations/create')
+            ->where('catalogUrl', '/catalog')
         );
+    }
+
+    public function test_catalog_route_renders_the_pull_page_for_a_verified_shop(): void
+    {
+        $shop = User::factory()->create(['name' => 'catalog-shop.myshopify.com']);
+
+        $this->withoutMiddleware([VerifyShopify::class, Billable::class])
+            ->actingAs($shop)
+            ->get('/catalog?shop=catalog-shop.myshopify.com&host=test-host')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Catalog')
+                ->where('catalogSyncUrl', '/catalog/sync')
+                ->where('homeUrl', '/')
+            );
     }
 
     public function test_home_route_uses_package_authentication_and_billing_middleware(): void
@@ -41,5 +57,10 @@ class InertiaHomeTest extends TestCase
         $this->assertNotNull($route);
         $this->assertContains('verify.shopify', $route->middleware());
         $this->assertContains('billable', $route->middleware());
+
+        $catalogRoute = app('router')->getRoutes()->getByName('catalog.page');
+        $this->assertNotNull($catalogRoute);
+        $this->assertContains('verify.shopify', $catalogRoute->middleware());
+        $this->assertContains('billable', $catalogRoute->middleware());
     }
 }

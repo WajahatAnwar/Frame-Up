@@ -3,6 +3,8 @@ import './shopify-auth';
 
 import { createInertiaApp } from '@inertiajs/react';
 import { createRoot } from 'react-dom/client';
+import { withEmbeddedContext } from './shopify-auth';
+import { visitEmbedded } from './polaris-navigation';
 
 createInertiaApp({
     resolve: (name) => {
@@ -10,7 +12,16 @@ createInertiaApp({
         return pages[`./Pages/${name}.jsx`];
     },
     setup({ el, App, props }) {
-        createRoot(el).render(<App {...props} />);
+        createRoot(el).render(
+            <>
+                <s-app-nav>
+                    <s-link href={withEmbeddedContext('/')} rel="home" onClick={(event) => visitEmbedded(event, '/')}>Dashboard</s-link>
+                    <s-link href={withEmbeddedContext('/configurations')} onClick={(event) => visitEmbedded(event, '/configurations')}>Configurations</s-link>
+                    <s-link href={withEmbeddedContext('/catalog')} onClick={(event) => visitEmbedded(event, '/catalog')}>Catalog</s-link>
+                </s-app-nav>
+                <App {...props} />
+            </>,
+        );
     },
     progress: {
         color: '#0f172a',
