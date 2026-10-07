@@ -47,13 +47,17 @@ export default function Catalog({ catalogSyncUrl, homeUrl }) {
                             Pull Catalog
                         </s-button>
                     </div>
-                    <p
-                        role="status"
-                        aria-live="polite"
-                        className={`mt-5 min-h-6 ${status === 'error' ? 'text-red-700' : 'text-slate-700'}`}
-                    >
-                        {message}
-                    </p>
+                    {message && (
+                        <div className="mt-5">
+                            <s-banner
+                                tone={status === 'error' ? 'critical' : status === 'success' ? 'success' : 'info'}
+                                dismissible
+                                onDismiss={() => { setStatus('idle'); setMessage(''); }}
+                            >
+                                {message}
+                            </s-banner>
+                        </div>
+                    )}
                 </section>
             </main>
         </>

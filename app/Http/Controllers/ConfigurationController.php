@@ -100,7 +100,7 @@ class ConfigurationController extends Controller
             throw $exception;
         }
 
-        return $this->syncAndRedirect($request, $configuration, $shopifySync);
+        return $this->syncAndRedirect($request, $configuration, $shopifySync, 'Configuration created successfully.');
     }
 
     public function show(Request $request, Configuration $configuration, CatalogConfigurationOptions $options): Response
@@ -142,7 +142,7 @@ class ConfigurationController extends Controller
             Storage::disk('public')->delete($oldImagePath);
         }
 
-        return $this->syncAndRedirect($request, $configuration, $shopifySync);
+        return $this->syncAndRedirect($request, $configuration, $shopifySync, 'Configuration updated successfully.');
     }
 
     public function destroy(Request $request, Configuration $configuration): RedirectResponse
@@ -222,12 +222,13 @@ class ConfigurationController extends Controller
         ]));
     }
 
-    private function syncAndRedirect(Request $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync): RedirectResponse
+    private function syncAndRedirect(Request $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync, string $successMessage): RedirectResponse
     {
         try {
             $shopifySync->sync($configuration);
 
-            return $this->redirectTo($request, 'configurations.show', $configuration);
+            return $this->redirectTo($request, 'configurations.show', $configuration)
+                ->with('success', $successMessage);
         } catch (Throwable $exception) {
             Log::error('Configuration Shopify product sync failed', [
                 'configuration_id' => $configuration->id,

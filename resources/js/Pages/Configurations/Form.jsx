@@ -1,4 +1,4 @@
-import { Head, router, useForm } from '@inertiajs/react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
 import { authenticatedFetch, withEmbeddedContext } from '../../shopify-auth';
 import { visitEmbedded } from '../../polaris-navigation';
@@ -50,6 +50,7 @@ function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
 
 export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, settingsUrl, priceMultiplier }) {
     const readOnly = mode === 'show';
+    const { flash } = usePage().props;
     const { data, setData, post, transform, processing, errors } = useForm({
         name: configuration?.name ?? '',
         shopify_product_type: configuration?.shopify_product_type ?? '',
@@ -61,7 +62,13 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     const [imageError, setImageError] = useState('');
     const [priceSummaries, setPriceSummaries] = useState([]);
     const [priceError, setPriceError] = useState('');
+    const [successDismissed, setSuccessDismissed] = useState(false);
+    const [errorsDismissed, setErrorsDismissed] = useState(false);
+    const errorMessages = JSON.stringify(errors);
     const priceSelections = JSON.stringify(data.print_types);
+
+    useEffect(() => setSuccessDismissed(false), [flash?.success]);
+    useEffect(() => setErrorsDismissed(false), [errorMessages]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -124,7 +131,12 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     function save() {
         const url = withEmbeddedContext(submitUrl);
         transform((values) => mode === 'create' ? values : { ...values, _method: 'put' });
-        post(url, { preserveScroll: true, forceFormData: true });
+        post(url, {
+            preserveScroll: true,
+            forceFormData: true,
+            onSuccess: () => setSuccessDismissed(false),
+            onError: () => setErrorsDismissed(false),
+        });
     }
 
     function selectImage(event) {
@@ -165,8 +177,12 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     </s-button>
                 )}
 
-                {Object.keys(errors).length > 0 && (
-                    <s-banner tone="critical" heading="Check the configuration">
+                {flash?.success && !successDismissed && (
+                    <s-banner tone="success" dismissible onDismiss={() => setSuccessDismissed(true)}>{flash.success}</s-banner>
+                )}
+
+                {Object.keys(errors).length > 0 && !errorsDismissed && (
+                    <s-banner tone="critical" heading="Check the configuration" dismissible onDismiss={() => setErrorsDismissed(true)}>
                         <s-stack direction="block" gap="tight">
                             {Object.entries(errors).map(([field, message]) => <s-text key={field}>{message}</s-text>)}
                         </s-stack>

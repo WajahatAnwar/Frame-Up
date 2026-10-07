@@ -74,7 +74,9 @@ class ConfigurationFeatureTest extends TestCase
         $this->mock(ShopifyConfigurationProductSync::class)
             ->shouldReceive('sync')->twice()->andReturn('gid://shopify/Product/123');
 
-        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect();
+        $this->actingAs($merchant)->post('/configurations', $payload)
+            ->assertRedirect()
+            ->assertSessionHas('success', 'Configuration created successfully.');
 
         $configuration = Configuration::firstOrFail();
         $this->assertSame($merchant->id, $configuration->user_id);
@@ -82,22 +84,27 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertSame([50], $configuration->printTypes->first()->selected_variant_ids);
         $this->assertSame([30, 31, 32, 33, 34], $configuration->printTypes->first()->selected_addon_ids);
 
-        $this->actingAs($merchant)->get('/configurations')->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('configurations.data.0.print_type_names.0', 'Canvas'));
-
         $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('Configurations/Form')
             ->where('mode', 'show')
+            ->where('flash.success', 'Configuration created successfully.')
             ->where('configuration.id', $configuration->id)
             ->where('catalog.0.surfaces.0.addons.2.group', 'Wrap style')
             ->where('catalog.0.surfaces.0.addons.3.category', 'advance')
             ->where('catalog.0.surfaces.0.addons.4.category', 'other')
             ->has('catalog', 1));
 
+        $this->actingAs($merchant)->get('/configurations')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('configurations.data.0.print_type_names.0', 'Canvas'));
+
         $payload['name'] = 'Updated canvas';
         $payload['status'] = 'draft';
         $payload['print_types'] = [];
-        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)->assertRedirect();
+        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)
+            ->assertRedirect()
+            ->assertSessionHas('success', 'Configuration updated successfully.');
+        $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->where('flash.success', 'Configuration updated successfully.'));
         $this->assertSame('Updated canvas', $configuration->fresh()->name);
         $this->assertSame(0, $configuration->printTypes()->count());
 
@@ -653,7 +660,8 @@ class ConfigurationFeatureTest extends TestCase
 
         $this->actingAs($merchant)->post('/configurations', $this->validPayload())
             ->assertRedirect('/configurations/1/edit')
-            ->assertSessionHasErrors('shopify');
+            ->assertSessionHasErrors('shopify')
+            ->assertSessionMissing('success');
 
         $this->assertDatabaseHas('configurations', ['id' => 1, 'name' => 'Canvas setup', 'shopify_product_id' => null]);
     }
