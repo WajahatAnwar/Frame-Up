@@ -19,4 +19,9 @@ class Configuration extends Model
     {
         return $this->hasMany(ConfigurationPrintType::class)->orderBy('position');
     }
+
+    public function shopifyProducts(): HasMany
+    {
+        return $this->hasMany(ConfigurationShopifyProduct::class);
+    }
 }

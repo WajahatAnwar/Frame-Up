@@ -142,10 +142,6 @@ class ConfigurationProductInput
         }
 
         $input = [
-            'title' => $configuration->name,
-            'productType' => $configuration->shopify_product_type,
-            'handle' => 'frame-up-configuration-'.$configuration->id,
-            'status' => $configuration->status === 'active' ? 'ACTIVE' : 'DRAFT',
             'productOptions' => collect($optionValues)->map(fn ($values, $name) => ['name' => $name, 'values' => array_values($values)])->values()->all(),
             'variants' => $variants,
         ];

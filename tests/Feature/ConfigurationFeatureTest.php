@@ -8,6 +8,7 @@ use App\Services\CatalogConfigurationOptions;
 use App\Services\ConfigurationProductInput;
 use App\Services\ShopifyConfigurationProductSync;
 use App\Services\ShopifyGraphqlGateway;
+use App\Services\ShopifyProductCatalog;
 use Gnikyt\BasicShopifyAPI\BasicShopifyAPI;
 use Gnikyt\BasicShopifyAPI\ResponseAccess;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -72,11 +73,15 @@ class ConfigurationFeatureTest extends TestCase
         $this->seedCatalog();
         $payload = $this->validPayload();
         $this->mock(ShopifyConfigurationProductSync::class)
-            ->shouldReceive('sync')->twice()->andReturn('gid://shopify/Product/123');
+            ->shouldReceive('sync')->twice()->andReturn(1);
+
+        $this->actingAs($merchant)->get('/configurations/create')->assertOk()->assertInertia(fn (Assert $page) => $page
+            ->component('Configurations/Form')
+            ->where('productTypesUrl', '/shopify/product-types'));
 
         $this->actingAs($merchant)->post('/configurations', $payload)
             ->assertRedirect()
-            ->assertSessionHas('success', 'Configuration created successfully.');
+            ->assertSessionHas('success', 'Configuration created successfully. Applied to 1 Shopify product.');
 
         $configuration = Configuration::firstOrFail();
         $this->assertSame($merchant->id, $configuration->user_id);
@@ -87,7 +92,7 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('Configurations/Form')
             ->where('mode', 'show')
-            ->where('flash.success', 'Configuration created successfully.')
+            ->where('flash.success', 'Configuration created successfully. Applied to 1 Shopify product.')
             ->where('configuration.id', $configuration->id)
             ->where('catalog.0.surfaces.0.addons.2.group', 'Wrap style')
             ->where('catalog.0.surfaces.0.addons.3.category', 'advance')
@@ -97,7 +102,6 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->get('/configurations')->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('configurations.data.0.print_type_names.0', 'Canvas'));
 
-        $payload['name'] = 'Updated canvas';
         $payload['status'] = 'draft';
         $payload['print_types'] = [];
         $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)
@@ -105,7 +109,7 @@ class ConfigurationFeatureTest extends TestCase
             ->assertSessionHas('success', 'Configuration updated successfully.');
         $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('flash.success', 'Configuration updated successfully.'));
-        $this->assertSame('Updated canvas', $configuration->fresh()->name);
+        $this->assertSame('Wall art', $configuration->fresh()->name);
         $this->assertSame(0, $configuration->printTypes()->count());
 
         $this->actingAs($merchant)->delete("/configurations/{$configuration->id}")->assertRedirect();
@@ -117,7 +121,7 @@ class ConfigurationFeatureTest extends TestCase
         Storage::fake('public');
         $merchant = User::factory()->create();
         $this->seedCatalog();
-        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->twice()->andReturn('gid://shopify/Product/123');
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->twice()->andReturn(1);
 
         $payload = $this->validPayload();
         $payload['image'] = UploadedFile::fake()->image('first.jpg');
@@ -174,7 +178,7 @@ class ConfigurationFeatureTest extends TestCase
         $payload['print_types'][0]['variant_ids'] = [50, '50', 50];
         $payload['print_types'][0]['addon_ids'] = [30, '30', 30, 31, 32, 33, 34];
         $this->mock(ShopifyConfigurationProductSync::class)
-            ->shouldReceive('sync')->once()->andReturn(null);
+            ->shouldReceive('sync')->once()->andReturn(0);
 
         $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect();
 
@@ -210,7 +214,7 @@ class ConfigurationFeatureTest extends TestCase
                 'id' => 20, 'title' => 'Canvas surface', 'variants' => $sizes, 'addons' => [],
             ]],
         ]]);
-        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(null);
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(0);
         $payload = [
             'name' => 'Many sizes', 'shopify_product_type' => 'Wall art', 'status' => 'active',
             'print_types' => [[
@@ -224,7 +228,10 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertDatabaseCount('configurations', 0);
 
         array_pop($payload['print_types'][0]['variant_ids']);
-        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect()->assertSessionDoesntHaveErrors();
+        $this->actingAs($merchant)->post('/configurations', $payload)
+            ->assertRedirect()
+            ->assertSessionDoesntHaveErrors()
+            ->assertSessionHas('success', 'Configuration created successfully. No Shopify products currently match this product type.');
         $configuration = Configuration::firstOrFail();
         $this->assertCount(2000, app(ConfigurationProductInput::class)->build($configuration->load('printTypes'))['variants']);
 
@@ -233,6 +240,34 @@ class ConfigurationFeatureTest extends TestCase
             ->assertSessionHasErrors(['print_types']);
 
         $this->assertCount(2000, $configuration->fresh()->printTypes->first()->selected_variant_ids);
+    }
+
+    public function test_a_shop_cannot_have_two_configurations_targeting_the_same_product_type(): void
+    {
+        $merchant = User::factory()->create();
+        $other = User::factory()->create();
+        Configuration::create([
+            'user_id' => $merchant->id,
+            'name' => 'Frame',
+            'shopify_product_type' => 'Frame',
+            'status' => 'draft',
+        ]);
+        $payload = [
+            'shopify_product_type' => 'Frame',
+            'status' => 'draft',
+            'print_types' => [],
+        ];
+
+        $this->actingAs($merchant)->post('/configurations', ['status' => 'draft', 'print_types' => []])
+            ->assertSessionHasErrors('shopify_product_type');
+        $this->actingAs($merchant)->post('/configurations', $payload)
+            ->assertSessionHasErrors('shopify_product_type');
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(0);
+        $this->actingAs($other)->post('/configurations', $payload)
+            ->assertRedirect()
+            ->assertSessionDoesntHaveErrors();
+
+        $this->assertDatabaseCount('configurations', 2);
     }
 
     public function test_merchants_cannot_access_each_others_configurations(): void
@@ -292,7 +327,8 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertSame(['4x6', '8x8'], array_column($input['productOptions'][1]['values'], 'name'));
         $this->assertSame(['Floating frame', 'Box White'], array_column($input['productOptions'][2]['values'], 'name'));
         $this->assertSame(['21.40', '22.40', '39.40', '40.40'], array_column($input['variants'], 'price'));
-        $this->assertSame('ACTIVE', $input['status']);
+        $this->assertArrayNotHasKey('status', $input);
+        $this->assertArrayNotHasKey('title', $input);
 
         DB::table('product_settings')->where('product_id', 30)->update(['custom_price_type' => 'linear_inches', 'is_negative' => 1]);
         $discounted = app(ConfigurationProductInput::class)->build($configuration);
@@ -444,6 +480,11 @@ class ConfigurationFeatureTest extends TestCase
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
             'selected_variant_ids' => [50], 'selected_addon_ids' => [],
         ]);
+        $this->mock(ShopifyProductCatalog::class)
+            ->shouldReceive('productsOfType')->twice()
+            ->andReturnUsing(fn () => (function () {
+                yield ['id' => 'gid://shopify/Product/123', 'title' => 'Existing canvas', 'productType' => 'Wall art'];
+            })());
         $productInput = [
             'title' => 'Canvas setup', 'productType' => 'Wall art', 'handle' => 'frame-up-configuration-'.$configuration->id,
             'status' => 'ACTIVE',
@@ -471,16 +512,21 @@ class ConfigurationFeatureTest extends TestCase
         $this->mock(ConfigurationProductInput::class)->shouldReceive('build')->twice()->andReturn($productInput, $updatedInput);
         $gateway = $this->mock(ShopifyGraphqlGateway::class);
         $gateway->shouldReceive('query')->once()
-            ->withArgs(fn ($shop, $query, $variables) => $shop->is($merchant) && str_contains($query, 'productByIdentifier') && $variables['identifier']['handle'] === 'frame-up-configuration-'.$configuration->id)
-            ->andReturn(['productByIdentifier' => null]);
+            ->withArgs(fn ($shop, $query, $variables) => $shop->is($merchant) && str_contains($query, 'query ConfigurationProduct(') && $variables['id'] === 'gid://shopify/Product/123')
+            ->andReturn(['product' => [
+                'id' => 'gid://shopify/Product/123', 'options' => [],
+                'media' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false]],
+                'variants' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]],
+            ]]);
         $gateway->shouldReceive('query')->once()
             ->withArgs(fn ($shop, $query, $variables) => str_contains($query, 'productSet')
-                && $variables['identifier']['handle'] === 'frame-up-configuration-'.$configuration->id
+                && $variables['identifier']['id'] === 'gid://shopify/Product/123'
                 && array_column($variables['input']['productOptions'], 'name') === ['Print Type', 'Sizes', 'Mounts and Frames']
                 && $variables['input']['variants'][0]['price'] === '10.00'
+                && ! isset($variables['input']['title'], $variables['input']['handle'], $variables['input']['status'], $variables['input']['productType'])
                 && $variables['input']['files'] === [[
                     'originalSource' => 'https://frame-up.example.test/storage/configuration-images/test.jpg',
-                    'contentType' => 'IMAGE', 'alt' => 'Canvas setup',
+                    'contentType' => 'IMAGE', 'alt' => 'Existing canvas',
                 ]])
             ->andReturn(['productSet' => ['product' => [
                 'id' => 'gid://shopify/Product/123',
@@ -539,11 +585,128 @@ class ConfigurationFeatureTest extends TestCase
 
         $result = app(ShopifyConfigurationProductSync::class)->sync($configuration);
 
-        $this->assertSame('gid://shopify/Product/123', $result);
-        $this->assertSame($result, $configuration->fresh()->shopify_product_id);
-        $this->assertSame('gid://shopify/MediaImage/10', $configuration->fresh()->shopify_image_id);
-        $this->assertSame('configuration-images/test.jpg', $configuration->fresh()->shopify_synced_image_path);
-        $this->assertSame($result, app(ShopifyConfigurationProductSync::class)->sync($configuration->fresh()));
+        $this->assertSame(1, $result);
+        $this->assertNull($configuration->fresh()->shopify_product_id);
+        $this->assertDatabaseHas('configuration_shopify_products', [
+            'configuration_id' => $configuration->id,
+            'shopify_product_id' => 'gid://shopify/Product/123',
+            'shopify_image_id' => 'gid://shopify/MediaImage/10',
+            'shopify_synced_image_path' => 'configuration-images/test.jpg',
+        ]);
+        $this->assertSame(1, app(ShopifyConfigurationProductSync::class)->sync($configuration->fresh()));
+    }
+
+    public function test_active_configuration_updates_every_product_of_the_selected_type_without_renaming_them(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Frame', 'shopify_product_type' => 'Frame', 'status' => 'active',
+        ]);
+        $configuration->printTypes()->create([
+            'collection_id' => 10, 'product_id' => 20, 'position' => 0,
+            'selected_variant_ids' => [50], 'selected_addon_ids' => [],
+        ]);
+        $this->mock(ShopifyProductCatalog::class)
+            ->shouldReceive('productsOfType')->once()
+            ->andReturnUsing(fn () => (function () {
+                yield ['id' => 'gid://shopify/Product/1', 'title' => 'Wood frame', 'productType' => 'Frame'];
+                yield ['id' => 'gid://shopify/Product/2', 'title' => 'Metal frame', 'productType' => 'Frame'];
+            })());
+
+        $mutations = [];
+        $gateway = $this->mock(ShopifyGraphqlGateway::class);
+        $gateway->shouldReceive('query')->times(4)->andReturnUsing(function ($shop, $query, $variables) use ($merchant, &$mutations): array {
+            $this->assertTrue($shop->is($merchant));
+            if (str_contains($query, 'query ConfigurationProduct(')) {
+                $productId = $variables['id'];
+
+                return ['product' => [
+                    'id' => $productId,
+                    'options' => $productId === 'gid://shopify/Product/1' ? [
+                        ['id' => 'gid://shopify/ProductOption/1', 'name' => 'Print Type', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/1', 'name' => 'Canvas - Giclée Canvas']]],
+                        ['id' => 'gid://shopify/ProductOption/2', 'name' => 'Sizes', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/2', 'name' => '4x6']]],
+                        ['id' => 'gid://shopify/ProductOption/3', 'name' => 'Mounts and Frames', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/3', 'name' => 'None']]],
+                    ] : [],
+                    'media' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false]],
+                    'variants' => [
+                        'nodes' => $productId === 'gid://shopify/Product/1' ? [[
+                            'id' => 'gid://shopify/ProductVariant/5',
+                            'selectedOptions' => [
+                                ['name' => 'Print Type', 'value' => 'Canvas - Giclée Canvas'],
+                                ['name' => 'Sizes', 'value' => '4x6'],
+                                ['name' => 'Mounts and Frames', 'value' => 'None'],
+                            ],
+                        ]] : [],
+                        'pageInfo' => ['hasNextPage' => false, 'endCursor' => null],
+                    ],
+                ]];
+            }
+
+            $this->assertStringContainsString('productSet', $query);
+            $mutations[] = $variables;
+
+            return ['productSet' => ['product' => [
+                'id' => $variables['identifier']['id'], 'media' => ['nodes' => []],
+            ], 'userErrors' => []]];
+        });
+
+        $this->assertSame(2, app(ShopifyConfigurationProductSync::class)->sync($configuration));
+        $this->assertSame(['gid://shopify/Product/1', 'gid://shopify/Product/2'], array_column(array_column($mutations, 'identifier'), 'id'));
+        $this->assertSame('gid://shopify/ProductVariant/5', $mutations[0]['input']['variants'][0]['id']);
+        $this->assertArrayNotHasKey('id', $mutations[1]['input']['variants'][0]);
+        $this->assertSame('20.00', $mutations[0]['input']['variants'][0]['price']);
+        $this->assertSame('20.00', $mutations[1]['input']['variants'][0]['price']);
+        foreach ($mutations as $mutation) {
+            $this->assertSame([], array_intersect(['title', 'handle', 'status', 'productType'], array_keys($mutation['input'])));
+        }
+        $this->assertSame(2, $configuration->shopifyProducts()->count());
+    }
+
+    public function test_changing_the_target_type_leaves_previously_updated_products_as_they_are(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Frame', 'shopify_product_type' => 'Frame', 'status' => 'active',
+        ]);
+        $configuration->printTypes()->create([
+            'collection_id' => 10, 'product_id' => 20, 'position' => 0,
+            'selected_variant_ids' => [50], 'selected_addon_ids' => [],
+        ]);
+        $this->mock(ShopifyProductCatalog::class)
+            ->shouldReceive('productsOfType')->twice()
+            ->andReturnUsing(fn ($shop, $type) => (function () use ($type) {
+                yield [
+                    'id' => $type === 'Frame' ? 'gid://shopify/Product/1' : 'gid://shopify/Product/2',
+                    'title' => $type.' product',
+                    'productType' => $type,
+                ];
+            })());
+        $gateway = $this->mock(ShopifyGraphqlGateway::class);
+        $gateway->shouldReceive('query')->times(4)->andReturnUsing(function ($shop, $query, $variables): array {
+            $productId = $variables['id'] ?? $variables['identifier']['id'];
+            if (str_contains($query, 'query ConfigurationProduct(')) {
+                return ['product' => [
+                    'id' => $productId, 'options' => [],
+                    'media' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false]],
+                    'variants' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false, 'endCursor' => null]],
+                ]];
+            }
+
+            return ['productSet' => ['product' => ['id' => $productId, 'media' => ['nodes' => []]], 'userErrors' => []]];
+        });
+
+        $this->assertSame(1, app(ShopifyConfigurationProductSync::class)->sync($configuration));
+        $configuration->update(['name' => 'Canvas', 'shopify_product_type' => 'Canvas']);
+        $this->assertSame(1, app(ShopifyConfigurationProductSync::class)->sync($configuration->fresh()));
+
+        $this->assertSame(
+            ['gid://shopify/Product/1', 'gid://shopify/Product/2'],
+            $configuration->shopifyProducts()->orderBy('id')->pluck('shopify_product_id')->all(),
+        );
     }
 
     public function test_graphql_gateway_unwraps_data_and_reports_expired_shop_access(): void
@@ -579,11 +742,18 @@ class ConfigurationFeatureTest extends TestCase
             'name' => 'Canvas setup',
             'shopify_product_type' => 'Wall art',
             'status' => 'active',
-            'shopify_product_id' => 'gid://shopify/Product/123',
             'image_path' => 'configuration-images/new.jpg',
+        ]);
+        $configuration->shopifyProducts()->create([
+            'shopify_product_id' => 'gid://shopify/Product/123',
             'shopify_image_id' => 'gid://shopify/MediaImage/old',
             'shopify_synced_image_path' => 'configuration-images/old.jpg',
         ]);
+        $this->mock(ShopifyProductCatalog::class)
+            ->shouldReceive('productsOfType')->twice()
+            ->andReturnUsing(fn () => (function () {
+                yield ['id' => 'gid://shopify/Product/123', 'title' => 'Existing canvas', 'productType' => 'Wall art'];
+            })());
         $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
             'selected_variant_ids' => [50], 'selected_addon_ids' => [],
@@ -622,7 +792,7 @@ class ConfigurationFeatureTest extends TestCase
             ->andReturn(['product' => $product], ['product' => $productAfter]);
         $gateway->shouldReceive('query')->once()
             ->withArgs(fn ($shop, $query, $variables) => str_contains($query, 'productSet') && $variables['input']['files'] === [
-                ['originalSource' => 'https://frame-up.example.test/storage/configuration-images/new.jpg', 'contentType' => 'IMAGE', 'alt' => 'Canvas setup'],
+                ['originalSource' => 'https://frame-up.example.test/storage/configuration-images/new.jpg', 'contentType' => 'IMAGE', 'alt' => 'Existing canvas'],
                 ['id' => 'gid://shopify/MediaImage/other'],
             ])
             ->andReturn(['productSet' => ['product' => [
@@ -646,8 +816,8 @@ class ConfigurationFeatureTest extends TestCase
 
         $sync = app(ShopifyConfigurationProductSync::class);
         $sync->sync($configuration);
-        $this->assertSame('gid://shopify/MediaImage/new', $configuration->fresh()->shopify_image_id);
-        $this->assertSame('configuration-images/new.jpg', $configuration->fresh()->shopify_synced_image_path);
+        $this->assertSame('gid://shopify/MediaImage/new', $configuration->shopifyProducts()->first()->shopify_image_id);
+        $this->assertSame('configuration-images/new.jpg', $configuration->shopifyProducts()->first()->shopify_synced_image_path);
         $sync->sync($configuration->fresh());
     }
 
@@ -663,7 +833,7 @@ class ConfigurationFeatureTest extends TestCase
             ->assertSessionHasErrors('shopify')
             ->assertSessionMissing('success');
 
-        $this->assertDatabaseHas('configurations', ['id' => 1, 'name' => 'Canvas setup', 'shopify_product_id' => null]);
+        $this->assertDatabaseHas('configurations', ['id' => 1, 'name' => 'Wall art', 'shopify_product_id' => null]);
     }
 
     public function test_incomplete_draft_does_not_create_an_unusable_shopify_product(): void
@@ -675,7 +845,7 @@ class ConfigurationFeatureTest extends TestCase
         $this->mock(ShopifyGraphqlGateway::class)->shouldNotReceive('query');
         $this->mock(ConfigurationProductInput::class)->shouldNotReceive('build');
 
-        $this->assertNull(app(ShopifyConfigurationProductSync::class)->sync($configuration));
+        $this->assertSame(0, app(ShopifyConfigurationProductSync::class)->sync($configuration));
         $this->assertNull($configuration->fresh()->shopify_product_id);
     }
 
@@ -715,7 +885,6 @@ class ConfigurationFeatureTest extends TestCase
     private function validPayload(): array
     {
         return [
-            'name' => 'Canvas setup',
             'shopify_product_type' => 'Wall art',
             'status' => 'active',
             'print_types' => [[

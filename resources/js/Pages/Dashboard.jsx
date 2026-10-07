@@ -57,8 +57,7 @@ export default function Dashboard({ stats, recentConfigurations, indexUrl, creat
                                         <s-table-row key={configuration.id}>
                                             <s-table-cell>
                                                 <s-stack direction="block" gap="tight">
-                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.name}</s-link>
-                                                    <s-text tone="subdued">{configuration.shopify_product_type || 'No Shopify product type'}</s-text>
+                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.shopify_product_type}</s-link>
                                                 </s-stack>
                                             </s-table-cell>
                                             <s-table-cell><s-badge tone={configuration.status === 'active' ? 'success' : 'info'}>{configuration.status === 'active' ? 'Active' : 'Draft'}</s-badge></s-table-cell>

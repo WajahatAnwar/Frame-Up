@@ -29,8 +29,7 @@ class ConfigurationController extends Controller
             ->where('user_id', $request->user()->id)
             ->when($filters['search'] ?? null, function ($query, $search): void {
                 $query->where(function ($query) use ($search): void {
-                    $query->where('name', 'like', '%'.$search.'%')
-                        ->orWhere('shopify_product_type', 'like', '%'.$search.'%');
+                    $query->where('shopify_product_type', 'like', '%'.$search.'%');
                 });
             })
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
@@ -40,7 +39,6 @@ class ConfigurationController extends Controller
             ->withQueryString()
             ->through(fn (Configuration $configuration): array => [
                 'id' => $configuration->id,
-                'name' => $configuration->name,
                 'shopify_product_type' => $configuration->shopify_product_type,
                 'status' => $configuration->status,
                 'print_type_names' => $configuration->printTypes
@@ -75,6 +73,7 @@ class ConfigurationController extends Controller
             'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
             'settingsUrl' => route('settings.edit', absolute: false),
             'priceMultiplier' => $request->user()->price_multiplier,
+            'productTypesUrl' => route('shopify.product-types', absolute: false),
         ]);
     }
 
@@ -84,7 +83,8 @@ class ConfigurationController extends Controller
         try {
             $configuration = DB::transaction(function () use ($request, $imagePath): Configuration {
                 $configuration = Configuration::create([
-                    ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
+                    ...$request->safe()->only(['shopify_product_type', 'status']),
+                    'name' => $request->validated('shopify_product_type'),
                     'user_id' => $request->user()->id,
                     'image_path' => $imagePath,
                 ]);
@@ -125,7 +125,8 @@ class ConfigurationController extends Controller
         try {
             DB::transaction(function () use ($configuration, $request, $imagePath): void {
                 $configuration->update([
-                    ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
+                    ...$request->safe()->only(['shopify_product_type', 'status']),
+                    'name' => $request->validated('shopify_product_type'),
                     ...($imagePath ? ['image_path' => $imagePath] : []),
                 ]);
                 $configuration->printTypes()->delete();
@@ -177,6 +178,7 @@ class ConfigurationController extends Controller
             'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
             'settingsUrl' => route('settings.edit', absolute: false),
             'priceMultiplier' => $request->user()->price_multiplier,
+            'productTypesUrl' => route('shopify.product-types', absolute: false),
         ]);
     }
 
@@ -225,10 +227,15 @@ class ConfigurationController extends Controller
     private function syncAndRedirect(Request $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync, string $successMessage): RedirectResponse
     {
         try {
-            $shopifySync->sync($configuration);
+            $syncedProducts = $shopifySync->sync($configuration);
+            $message = $configuration->status === 'active'
+                ? ($syncedProducts > 0
+                    ? $successMessage.' Applied to '.$syncedProducts.' Shopify '.($syncedProducts === 1 ? 'product.' : 'products.')
+                    : $successMessage.' No Shopify products currently match this product type.')
+                : $successMessage;
 
             return $this->redirectTo($request, 'configurations.show', $configuration)
-                ->with('success', $successMessage);
+                ->with('success', $message);
         } catch (Throwable $exception) {
             Log::error('Configuration Shopify product sync failed', [
                 'configuration_id' => $configuration->id,
@@ -241,7 +248,7 @@ class ConfigurationController extends Controller
                 : 'Please try saving again or check the Shopify connection.';
 
             return $this->redirectTo($request, 'configurations.edit', $configuration)
-                ->withErrors(['shopify' => 'The configuration was saved, but its Shopify product could not be updated: '.$reason]);
+                ->withErrors(['shopify' => 'The configuration was saved, but one or more Shopify products could not be updated: '.$reason]);
         }
     }
 }

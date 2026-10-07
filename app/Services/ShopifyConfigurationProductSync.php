@@ -3,15 +3,20 @@
 namespace App\Services;
 
 use App\Models\Configuration;
+use App\Models\ConfigurationShopifyProduct;
 use App\Models\User;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
 class ShopifyConfigurationProductSync
 {
-    public function __construct(private ConfigurationProductInput $input, private ShopifyGraphqlGateway $graphql) {}
+    public function __construct(
+        private ConfigurationProductInput $input,
+        private ShopifyGraphqlGateway $graphql,
+        private ShopifyProductCatalog $catalog,
+    ) {}
 
-    public function sync(Configuration $configuration): ?string
+    public function sync(Configuration $configuration): int
     {
         $configuration->load('printTypes');
         $shop = $configuration->user;
@@ -21,50 +26,39 @@ class ShopifyConfigurationProductSync
 
         $complete = $configuration->printTypes->isNotEmpty()
             && $configuration->printTypes->every(fn ($printType) => $printType->collection_id && $printType->product_id && $printType->selected_variant_ids !== []);
-        if (! $complete) {
-            if ($configuration->shopify_product_id) {
-                $this->setDraft($shop, $configuration->shopify_product_id);
-            }
-
-            return $configuration->shopify_product_id;
+        if ($configuration->status !== 'active' || ! $complete) {
+            return 0;
         }
 
         $input = $this->input->build($configuration);
-        $existing = $this->findProduct($shop, $configuration);
-        if ($configuration->image_path) {
-            if ($existing['media_has_more'] ?? false) {
-                throw new RuntimeException('The Shopify product has too many images to safely update its image.');
-            }
-
-            $existingMediaIds = collect($existing['media'] ?? [])->pluck('id')->filter()->values();
-            $oldImageId = $configuration->shopify_image_id;
-            $reuseImage = $oldImageId
-                && $configuration->shopify_synced_image_path === $configuration->image_path
-                && $existingMediaIds->contains($oldImageId);
-            if (! $reuseImage && $existingMediaIds->count() >= 250) {
-                throw new RuntimeException('The Shopify product has too many images to safely add a new one.');
-            }
-            if ($reuseImage) {
-                $primaryImage = ['id' => $oldImageId];
-            } else {
-                $source = Storage::disk('public')->url($configuration->image_path);
-                if (! str_starts_with($source, 'https://')) {
-                    throw new RuntimeException('Set a public HTTPS APP_URL before syncing a configuration image to Shopify.');
-                }
-                $primaryImage = ['originalSource' => $source, 'contentType' => 'IMAGE', 'alt' => $configuration->name];
-            }
-
-            $input['files'] = [
-                $primaryImage,
-                ...$existingMediaIds
-                    ->reject(fn ($id) => $id === $oldImageId)
-                    ->map(fn ($id) => ['id' => $id])
-                    ->all(),
-            ];
+        $products = iterator_to_array($this->catalog->productsOfType($shop, $configuration->shopify_product_type), false);
+        $synced = 0;
+        foreach ($products as $product) {
+            $this->syncProduct($shop, $configuration, $product, $input);
+            $synced++;
         }
-        $existingVariants = collect($existing['variants'] ?? [])
+
+        return $synced;
+    }
+
+    /** @param array{id: string, title: string, productType: string, handle?: string} $product @param array<string, mixed> $template */
+    private function syncProduct(User $shop, Configuration $configuration, array $product, array $template): void
+    {
+        $productId = $product['id'];
+        $existing = $this->findProduct($shop, $productId);
+        $target = $configuration->shopifyProducts()->firstOrNew(['shopify_product_id' => $productId]);
+        $input = [
+            'productOptions' => $template['productOptions'],
+            'variants' => $template['variants'],
+        ];
+
+        if ($configuration->image_path) {
+            $this->addImageInput($configuration, $product, $existing, $target, $input);
+        }
+
+        $existingVariants = collect($existing['variants'])
             ->keyBy(fn ($variant) => $this->optionKey($variant['selectedOptions']));
-        $existingOptions = collect($existing['options'] ?? [])->keyBy('name');
+        $existingOptions = collect($existing['options'])->keyBy('name');
         foreach ($input['productOptions'] as &$option) {
             $oldOption = $existingOptions->get($option['name']);
             if (! $oldOption) {
@@ -91,7 +85,6 @@ class ShopifyConfigurationProductSync
         }
         unset($variant);
 
-        $identifier = $existing ? ['id' => $existing['id']] : ['handle' => $input['handle']];
         $body = $this->graphql->query($shop, <<<'GRAPHQL'
             mutation SyncConfigurationProduct($identifier: ProductSetIdentifiers, $input: ProductSetInput!) {
               productSet(identifier: $identifier, input: $input, synchronous: true) {
@@ -99,73 +92,100 @@ class ShopifyConfigurationProductSync
                 userErrors { field message }
               }
             }
-            GRAPHQL, ['identifier' => $identifier, 'input' => $input]);
+            GRAPHQL, ['identifier' => ['id' => $productId], 'input' => $input]);
 
         $errors = data_get($body, 'productSet.userErrors', []);
         if ($errors !== []) {
-            throw new RuntimeException('Shopify rejected the configuration product: '.implode('; ', array_column($errors, 'message')));
+            throw new RuntimeException('Shopify rejected the configuration for '.$product['title'].': '.implode('; ', array_column($errors, 'message')));
         }
-        $productId = data_get($body, 'productSet.product.id');
-        if (! is_string($productId) || $productId === '') {
-            throw new RuntimeException('Shopify did not return a product ID.');
+        if (data_get($body, 'productSet.product.id') !== $productId) {
+            throw new RuntimeException('Shopify did not return the expected product ID for '.$product['title'].'.');
         }
 
-        $updates = ['shopify_product_id' => $productId];
         if ($configuration->image_path) {
-            $mediaIds = collect(data_get($body, 'productSet.product.media.nodes', []))->pluck('id')->filter()->values();
-            $imageId = $reuseImage
-                ? $oldImageId
-                : $mediaIds->first(fn ($id) => ! $existingMediaIds->contains($id));
-            if (! is_string($imageId) || $imageId === '') {
-                throw new RuntimeException('Shopify did not return the configuration image ID.');
-            }
-            if ($mediaIds->first() !== $imageId) {
-                $reordered = $this->graphql->query($shop, <<<'GRAPHQL'
-                    mutation ReorderConfigurationImage($id: ID!, $moves: [MoveInput!]!) {
-                      productReorderMedia(id: $id, moves: $moves) {
-                        job { id }
-                        mediaUserErrors { field message }
-                      }
-                    }
-                    GRAPHQL, ['id' => $productId, 'moves' => [['id' => $imageId, 'newPosition' => 0]]]);
-                $reorderErrors = data_get($reordered, 'productReorderMedia.mediaUserErrors', []);
-                if ($reorderErrors !== []) {
-                    throw new RuntimeException('Shopify could not position the configuration image first: '.implode('; ', array_column($reorderErrors, 'message')));
-                }
-            }
-            $updates['shopify_image_id'] = $imageId;
-            $updates['shopify_synced_image_path'] = $configuration->image_path;
+            $this->saveImageResult($shop, $configuration, $product, $existing, $target, $body);
         }
-        $configuration->update($updates);
-
-        return $productId;
+        $target->save();
     }
 
-    private function setDraft(User $shop, string $productId): void
+    /** @param array<string, mixed> $product @param array<string, mixed> $existing @param array<string, mixed> $input */
+    private function addImageInput(Configuration $configuration, array $product, array $existing, ConfigurationShopifyProduct $target, array &$input): void
     {
-        $body = $this->graphql->query($shop, <<<'GRAPHQL'
-            mutation DraftConfigurationProduct($identifier: ProductSetIdentifiers, $input: ProductSetInput!) {
-              productSet(identifier: $identifier, input: $input, synchronous: true) {
-                userErrors { field message }
-              }
-            }
-            GRAPHQL, ['identifier' => ['id' => $productId], 'input' => ['status' => 'DRAFT']]);
-        $errors = data_get($body, 'productSet.userErrors', []);
-        if ($errors !== []) {
-            throw new RuntimeException('Shopify could not set the configuration product to draft: '.implode('; ', array_column($errors, 'message')));
+        if ($existing['media_has_more']) {
+            throw new RuntimeException('The Shopify product '.$product['title'].' has too many images to safely update its image.');
         }
+
+        $existingMediaIds = collect($existing['media'])->pluck('id')->filter()->values();
+        $oldImageId = $target->shopify_image_id;
+        $reuseImage = $oldImageId
+            && $target->shopify_synced_image_path === $configuration->image_path
+            && $existingMediaIds->contains($oldImageId);
+        if (! $reuseImage && $existingMediaIds->count() >= 250) {
+            throw new RuntimeException('The Shopify product '.$product['title'].' has too many images to safely add a new one.');
+        }
+
+        if ($reuseImage) {
+            $primaryImage = ['id' => $oldImageId];
+        } else {
+            $source = Storage::disk('public')->url($configuration->image_path);
+            if (! str_starts_with($source, 'https://')) {
+                throw new RuntimeException('Set a public HTTPS APP_URL before syncing a configuration image to Shopify.');
+            }
+            $primaryImage = ['originalSource' => $source, 'contentType' => 'IMAGE', 'alt' => $product['title']];
+        }
+
+        $input['files'] = [
+            $primaryImage,
+            ...$existingMediaIds
+                ->reject(fn ($id) => $id === $oldImageId)
+                ->map(fn ($id) => ['id' => $id])
+                ->all(),
+        ];
     }
 
-    /** @return array<string, mixed>|null */
-    private function findProduct(User $shop, Configuration $configuration): ?array
+    /** @param array<string, mixed> $product @param array<string, mixed> $existing @param array<string, mixed> $body */
+    private function saveImageResult(User $shop, Configuration $configuration, array $product, array $existing, ConfigurationShopifyProduct $target, array $body): void
+    {
+        $mediaIds = collect(data_get($body, 'productSet.product.media.nodes', []))->pluck('id')->filter()->values();
+        $existingMediaIds = collect($existing['media'])->pluck('id')->filter()->values();
+        $oldImageId = $target->shopify_image_id;
+        $reuseImage = $oldImageId
+            && $target->shopify_synced_image_path === $configuration->image_path
+            && $existingMediaIds->contains($oldImageId);
+        $imageId = $reuseImage
+            ? $oldImageId
+            : $mediaIds->first(fn ($id) => ! $existingMediaIds->contains($id));
+        if (! is_string($imageId) || $imageId === '') {
+            throw new RuntimeException('Shopify did not return the configuration image ID for '.$product['title'].'.');
+        }
+
+        if ($mediaIds->first() !== $imageId) {
+            $reordered = $this->graphql->query($shop, <<<'GRAPHQL'
+                mutation ReorderConfigurationImage($id: ID!, $moves: [MoveInput!]!) {
+                  productReorderMedia(id: $id, moves: $moves) {
+                    job { id }
+                    mediaUserErrors { field message }
+                  }
+                }
+                GRAPHQL, ['id' => $product['id'], 'moves' => [['id' => $imageId, 'newPosition' => 0]]]);
+            $errors = data_get($reordered, 'productReorderMedia.mediaUserErrors', []);
+            if ($errors !== []) {
+                throw new RuntimeException('Shopify could not position the configuration image first for '.$product['title'].': '.implode('; ', array_column($errors, 'message')));
+            }
+        }
+
+        $target->shopify_image_id = $imageId;
+        $target->shopify_synced_image_path = $configuration->image_path;
+    }
+
+    /** @return array<string, mixed> */
+    private function findProduct(User $shop, string $productId): array
     {
         $variants = [];
         $cursor = null;
-        $productId = $configuration->shopify_product_id;
 
         do {
-            $byId = $productId !== null;
-            $query = $byId ? <<<'GRAPHQL'
+            $body = $this->graphql->query($shop, <<<'GRAPHQL'
                 query ConfigurationProduct($id: ID!, $cursor: String) {
                   product(id: $id) {
                     id
@@ -177,34 +197,17 @@ class ShopifyConfigurationProductSync
                     }
                   }
                 }
-                GRAPHQL : <<<'GRAPHQL'
-                query ConfigurationProductByHandle($identifier: ProductIdentifierInput!, $cursor: String) {
-                  productByIdentifier(identifier: $identifier) {
-                    id
-                    options { id name optionValues { id name } }
-                    media(first: 250) { nodes { id } pageInfo { hasNextPage } }
-                    variants(first: 250, after: $cursor) {
-                      nodes { id selectedOptions { name value } }
-                      pageInfo { hasNextPage endCursor }
-                    }
-                  }
-                }
-                GRAPHQL;
-            $variables = $byId
-                ? ['id' => $productId, 'cursor' => $cursor]
-                : ['identifier' => ['handle' => 'frame-up-configuration-'.$configuration->id], 'cursor' => $cursor];
-            $body = $this->graphql->query($shop, $query, $variables);
-            $product = $body[$byId ? 'product' : 'productByIdentifier'] ?? null;
-            if ($product === null) {
-                if ($byId) {
-                    throw new RuntimeException('The linked Shopify product no longer exists.');
-                }
-
-                return null;
+                GRAPHQL, ['id' => $productId, 'cursor' => $cursor]);
+            $product = $body['product'] ?? null;
+            if (! is_array($product) || $product['id'] !== $productId) {
+                throw new RuntimeException('A targeted Shopify product no longer exists.');
             }
-            $productId = $product['id'];
             array_push($variants, ...$product['variants']['nodes']);
-            $cursor = $product['variants']['pageInfo']['hasNextPage'] ? $product['variants']['pageInfo']['endCursor'] : null;
+            $nextCursor = $product['variants']['pageInfo']['hasNextPage'] ? $product['variants']['pageInfo']['endCursor'] : null;
+            if ($product['variants']['pageInfo']['hasNextPage'] && (! is_string($nextCursor) || $nextCursor === '' || $nextCursor === $cursor)) {
+                throw new RuntimeException('Shopify did not return a valid variant cursor for a targeted product.');
+            }
+            $cursor = $nextCursor;
         } while ($cursor !== null);
 
         return [

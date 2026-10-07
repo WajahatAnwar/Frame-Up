@@ -39,8 +39,14 @@ class SaveConfigurationRequest extends FormRequest
     public function rules(): array
     {
         return [
-            'name' => ['required', 'string', 'max:255'],
-            'shopify_product_type' => ['required', 'string', 'max:255'],
+            'shopify_product_type' => [
+                'required', 'string', 'max:255',
+                ...($this->routeIs('configurations.price-preview') ? [] : [
+                    Rule::unique('configurations', 'shopify_product_type')
+                        ->where('user_id', $this->user()->id)
+                        ->ignore($this->route('configuration')?->id),
+                ]),
+            ],
             'status' => ['required', Rule::in(['draft', 'active'])],
             'image' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:5120'],
             'print_types' => ['present', 'array', 'max:20'],

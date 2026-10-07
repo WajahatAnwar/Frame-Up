@@ -48,11 +48,10 @@ function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
     );
 }
 
-export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, settingsUrl, priceMultiplier }) {
+export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, settingsUrl, priceMultiplier, productTypesUrl }) {
     const readOnly = mode === 'show';
     const { flash } = usePage().props;
     const { data, setData, post, transform, processing, errors } = useForm({
-        name: configuration?.name ?? '',
         shopify_product_type: configuration?.shopify_product_type ?? '',
         status: configuration?.status ?? 'draft',
         image: null,
@@ -62,6 +61,9 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     const [imageError, setImageError] = useState('');
     const [priceSummaries, setPriceSummaries] = useState([]);
     const [priceError, setPriceError] = useState('');
+    const [productTypes, setProductTypes] = useState(configuration?.shopify_product_type ? [configuration.shopify_product_type] : []);
+    const [productTypesError, setProductTypesError] = useState('');
+    const [productTypesLoading, setProductTypesLoading] = useState(mode !== 'show');
     const [successDismissed, setSuccessDismissed] = useState(false);
     const [errorsDismissed, setErrorsDismissed] = useState(false);
     const errorMessages = JSON.stringify(errors);
@@ -69,6 +71,25 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
 
     useEffect(() => setSuccessDismissed(false), [flash?.success]);
     useEffect(() => setErrorsDismissed(false), [errorMessages]);
+
+    useEffect(() => {
+        if (readOnly) return;
+
+        const controller = new AbortController();
+        authenticatedFetch(productTypesUrl, { signal: controller.signal })
+            .then(async (response) => {
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Shopify product types could not be loaded.');
+                setProductTypes([...new Set([...(result.product_types ?? []), configuration?.shopify_product_type].filter(Boolean))]);
+                setProductTypesError('');
+            })
+            .catch((error) => {
+                if (error.name !== 'AbortError') setProductTypesError(error.message || 'Shopify product types could not be loaded.');
+            })
+            .finally(() => { if (!controller.signal.aborted) setProductTypesLoading(false); });
+
+        return () => controller.abort();
+    }, [configuration?.shopify_product_type, productTypesUrl, readOnly]);
 
     useEffect(() => {
         const controller = new AbortController();
@@ -89,7 +110,6 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                         'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
                     },
                     body: JSON.stringify({
-                        name: data.name || 'Price preview',
                         shopify_product_type: data.shopify_product_type || 'Price preview',
                         status: 'draft',
                         print_types: selections,
@@ -111,7 +131,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
             clearTimeout(timer);
             controller.abort();
         };
-    }, [priceSelections, pricingPreviewUrl, data.name, data.shopify_product_type]);
+    }, [priceSelections, pricingPreviewUrl, data.shopify_product_type]);
 
     useEffect(() => {
         if (!data.image) {
@@ -156,7 +176,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
         router.delete(withEmbeddedContext(deleteUrl));
     }
 
-    const heading = mode === 'create' ? 'Create configuration' : mode === 'edit' ? 'Edit configuration' : configuration.name;
+    const heading = mode === 'create' ? 'Create configuration' : mode === 'edit' ? 'Edit configuration' : configuration.shopify_product_type;
 
     return (
         <>
@@ -189,29 +209,29 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     </s-banner>
                 )}
 
+                {productTypesError && <s-banner tone="critical" dismissible onDismiss={() => setProductTypesError('')}>{productTypesError}</s-banner>}
+
                 <s-section heading="1. Product basic details">
                     <s-stack direction="block" gap="base">
-                        <s-text-field
-                            label="Configuration name"
-                            value={data.name}
-                            disabled={readOnly}
-                            error={errors.name}
-                            onChange={(event) => setData('name', event.currentTarget.value)}
-                        />
-                        <s-text-field
-                            label="Shopify product type"
+                        <s-select
+                            label="Target Shopify product type"
                             value={data.shopify_product_type}
-                            disabled={readOnly}
+                            disabled={readOnly || productTypesLoading}
                             error={errors.shopify_product_type}
                             onChange={(event) => setData('shopify_product_type', event.currentTarget.value)}
-                        />
+                        >
+                            <s-option value="">{productTypesLoading ? 'Loading product types…' : 'Choose a product type'}</s-option>
+                            {productTypes.map((type) => <s-option key={type} value={type}>{type}</s-option>)}
+                        </s-select>
+                        <s-paragraph>The configuration will update products in the selected Shopify product type.</s-paragraph>
                         <s-select label="Status" value={data.status} disabled={readOnly} onChange={(event) => setData('status', event.currentTarget.value)}>
                             <s-option value="draft">Draft</s-option>
                             <s-option value="active">Active</s-option>
                         </s-select>
+                        <s-paragraph>Active configurations update matching Shopify products when saved. Drafts leave Shopify products as they are.</s-paragraph>
                         <s-section heading="Product image">
                             <s-stack direction="block" gap="base">
-                                {imagePreview && <s-thumbnail src={imagePreview} alt={`${data.name || 'Configuration'} product image`} size="large" />}
+                                {imagePreview && <s-thumbnail src={imagePreview} alt={`${data.shopify_product_type || 'Configuration'} product image`} size="large" />}
                                 {!readOnly && (
                                     <s-drop-zone
                                         label={configuration?.image_path ? 'Replace product image' : 'Add product image'}
@@ -225,7 +245,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                 )}
                                 {data.image && <s-text>{data.image.name}</s-text>}
                                 {!imagePreview && readOnly && <s-paragraph>No product image selected.</s-paragraph>}
-                                {!readOnly && <s-paragraph>Optional. JPEG, PNG, or WebP, up to 5 MB. This becomes the first Shopify product image.</s-paragraph>}
+                                {!readOnly && <s-paragraph>Optional. JPEG, PNG, or WebP, up to 5 MB. This becomes the first image on each targeted Shopify product.</s-paragraph>}
                             </s-stack>
                         </s-section>
                         <s-paragraph>Active configurations require a surface, a preset size, and at least one option in every exclusive group.</s-paragraph>
@@ -233,12 +253,8 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                 </s-section>
 
                 {configuration && (
-                    <s-section heading="Shopify product">
-                        <s-paragraph>
-                            {configuration.shopify_product_id
-                                ? `Linked product: ${configuration.shopify_product_id}`
-                                : 'No Shopify product yet. Complete a print type with a priced preset size, then save to create one.'}
-                        </s-paragraph>
+                    <s-section heading="Shopify target">
+                        <s-paragraph>{configuration.shopify_product_type} products receive this configuration when it is active and has complete print types.</s-paragraph>
                     </s-section>
                 )}
 
@@ -369,7 +385,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
 
                 {configuration && (
                     <s-modal id="delete-configuration-modal" heading="Delete configuration?">
-                        <s-paragraph>Delete “{configuration.name}” and its print type selections? This action cannot be undone.</s-paragraph>
+                        <s-paragraph>Delete the “{configuration.shopify_product_type}” configuration and its print type selections? This action cannot be undone.</s-paragraph>
                         <s-button slot="primary-action" variant="primary" tone="critical" disabled={processing} onClick={remove}>Delete configuration</s-button>
                         <s-button slot="secondary-actions" commandFor="delete-configuration-modal" command="--hide">Cancel</s-button>
                     </s-modal>

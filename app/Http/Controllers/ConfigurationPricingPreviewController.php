@@ -25,7 +25,7 @@ class ConfigurationPricingPreviewController extends Controller
         }
 
         $configuration = new Configuration([
-            'name' => $request->validated('name'),
+            'name' => $request->validated('shopify_product_type'),
             'shopify_product_type' => $request->validated('shopify_product_type'),
             'status' => 'draft',
         ]);

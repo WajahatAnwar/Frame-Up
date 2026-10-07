@@ -23,7 +23,7 @@ class DashboardController extends Controller
                 'surfaces' => DB::table('collection_product')->distinct('product_id')->count('product_id'),
             ],
             'recentConfigurations' => (clone $merchantConfigurations)
-                ->latest()->limit(5)->get(['id', 'name', 'shopify_product_type', 'status']),
+                ->latest()->limit(5)->get(['id', 'shopify_product_type', 'status']),
             'indexUrl' => route('configurations.index', absolute: false),
             'createUrl' => route('configurations.create', absolute: false),
             'catalogUrl' => route('catalog.page', absolute: false),

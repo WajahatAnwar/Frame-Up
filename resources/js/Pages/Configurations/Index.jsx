@@ -26,9 +26,9 @@ export default function ConfigurationsIndex({ configurations, filters, indexUrl,
                 <s-button slot="primary-action" variant="primary" href={withEmbeddedContext(createUrl)} onClick={(event) => visitEmbedded(event, createUrl)}>
                     Create configuration
                 </s-button>
-                <s-section heading="Find configurations" subheading="Search by configuration name or Shopify product type, then narrow the results by status.">
+                <s-section heading="Find configurations" subheading="Search by Shopify product type, then narrow the results by status.">
                     <s-stack direction="inline" gap="base" alignItems="end">
-                        <s-text-field label="Search by name or product type" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyFilters(); }} />
+                        <s-text-field label="Search by product type" value={search} onChange={(event) => setSearch(event.currentTarget.value)} onKeyDown={(event) => { if (event.key === 'Enter') applyFilters(); }} />
                         <s-select label="Status" value={status} onChange={(event) => setStatus(event.currentTarget.value)}>
                             <s-option value="">All statuses</s-option>
                             <s-option value="draft">Draft</s-option>
@@ -61,8 +61,7 @@ export default function ConfigurationsIndex({ configurations, filters, indexUrl,
                                         <s-table-row key={configuration.id}>
                                             <s-table-cell>
                                                 <s-stack direction="block" gap="tight">
-                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.name}</s-link>
-                                                    <s-text tone="subdued">{configuration.shopify_product_type || 'No Shopify product type'}</s-text>
+                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.shopify_product_type}</s-link>
                                                 </s-stack>
                                             </s-table-cell>
                                             <s-table-cell>{configuration.print_type_names.length === 0 ? 'None yet' : `${configuration.print_type_names.length} ${configuration.print_type_names.length === 1 ? 'print type' : 'print types'}`}</s-table-cell>
