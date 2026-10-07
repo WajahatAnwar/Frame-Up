@@ -19,6 +19,9 @@ class HandleInertiaRequests extends Middleware
         return [
             ...parent::share($request),
             'appName' => config('shopify-app.app_name'),
+            'flash' => [
+                'success' => $request->session()->get('success'),
+            ],
         ];
     }
 }

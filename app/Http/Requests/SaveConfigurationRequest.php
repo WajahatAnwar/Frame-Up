@@ -3,10 +3,13 @@
 namespace App\Http\Requests;
 
 use App\Models\Configuration;
+use App\Models\ConfigurationPrintType;
 use App\Services\CatalogConfigurationOptions;
+use App\Services\ConfigurationProductInput;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
+use RuntimeException;
 
 class SaveConfigurationRequest extends FormRequest
 {
@@ -66,6 +69,7 @@ class SaveConfigurationRequest extends FormRequest
 
             $collections = collect(app(CatalogConfigurationOptions::class)->all())->keyBy('id');
             $surfaceIndexes = [];
+            $maximumPossibleVariants = 0;
             foreach ($printTypes as $index => $printType) {
                 $collectionId = $printType['collection_id'] ?? null;
                 $productId = $printType['product_id'] ?? null;
@@ -106,6 +110,12 @@ class SaveConfigurationRequest extends FormRequest
                     $validator->errors()->add("print_types.{$index}.variant_ids", 'Select at least one preset size.');
                 }
 
+                $selectedMountCount = collect($surface['addons'])
+                    ->where('category', 'advance')
+                    ->whereIn('id', $addonIds)
+                    ->count();
+                $maximumPossibleVariants += count($variantIds) * max(1, $selectedMountCount);
+
                 if ($active) {
                     $exclusiveGroups = collect($surface['addons'])
                         ->where('category', 'exclusive')
@@ -116,6 +126,30 @@ class SaveConfigurationRequest extends FormRequest
                         }
                     }
                 }
+            }
+
+            if ($validator->errors()->isNotEmpty() || $maximumPossibleVariants <= ConfigurationProductInput::MAX_VARIANTS) {
+                return;
+            }
+
+            $configuration = $this->route('configuration') instanceof Configuration
+                ? $this->route('configuration')
+                : new Configuration;
+            $configuration->setRelation('printTypes', collect($printTypes)->map(fn (array $printType) => new ConfigurationPrintType([
+                'collection_id' => $printType['collection_id'] ?? null,
+                'product_id' => $printType['product_id'] ?? null,
+                'selected_variant_ids' => $printType['variant_ids'],
+                'selected_addon_ids' => $printType['addon_ids'],
+            ])));
+
+            try {
+                $variantCount = app(ConfigurationProductInput::class)->variantCount($configuration);
+            } catch (RuntimeException) {
+                return;
+            }
+
+            if ($variantCount > ConfigurationProductInput::MAX_VARIANTS) {
+                $validator->errors()->add('print_types', "This configuration would create {$variantCount} variants. The maximum is 2,000.");
             }
         }];
     }

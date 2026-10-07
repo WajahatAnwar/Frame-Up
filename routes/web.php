@@ -3,7 +3,9 @@
 use App\Http\Controllers\CatalogPageController;
 use App\Http\Controllers\CatalogSyncController;
 use App\Http\Controllers\ConfigurationController;
+use App\Http\Controllers\ConfigurationPricingPreviewController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TemporaryAuthCheckController;
 use Illuminate\Support\Facades\Route;
 
@@ -26,5 +28,16 @@ Route::get('/catalog', CatalogPageController::class)
     ->middleware(['verify.shopify', 'billable'])
     ->name('catalog.page');
 
+Route::post('/configurations/price-preview', ConfigurationPricingPreviewController::class)
+    ->middleware(['verify.shopify', 'billable', 'throttle:60,1'])
+    ->name('configurations.price-preview');
+
 Route::resource('configurations', ConfigurationController::class)
     ->middleware(['verify.shopify', 'billable']);
+
+Route::get('/settings', [SettingsController::class, 'edit'])
+    ->middleware(['verify.shopify', 'billable'])
+    ->name('settings.edit');
+Route::put('/settings', [SettingsController::class, 'update'])
+    ->middleware(['verify.shopify', 'billable'])
+    ->name('settings.update');

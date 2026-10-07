@@ -10,11 +10,29 @@ class ConfigurationProductInput
 {
     private const MOUNT_OPTION = 'Mounts and Frames';
 
+    public const MAX_VARIANTS = 2000;
+
     public function __construct(private CatalogConfigurationOptions $catalog) {}
 
-    /** @return array<string, mixed> */
-    public function build(Configuration $configuration): array
+    public function variantCount(Configuration $configuration): int
     {
+        return count($this->build($configuration, enforceLimit: false)['variants']);
+    }
+
+    /** @return array<int, array{index: int, min_price: string, max_price: string, variant_count: int}> */
+    public function priceSummaries(Configuration $configuration): array
+    {
+        return $this->build($configuration, withPricing: true)['pricingSummaries'];
+    }
+
+    /** @return array<string, mixed> */
+    public function build(Configuration $configuration, bool $enforceLimit = true, bool $withPricing = false): array
+    {
+        $multiplier = (int) ($configuration->user?->price_multiplier ?? 2);
+        if ($multiplier < 1) {
+            throw new RuntimeException('The store price multiplier must be at least 1.');
+        }
+
         $collections = collect($this->catalog->all())->keyBy('id');
         $selectedAddonIds = $configuration->printTypes->flatMap(fn ($printType) => $printType->selected_addon_ids ?? [])->unique()->values();
         $addonVariants = DB::table('product_varients')
@@ -32,11 +50,12 @@ class ConfigurationProductInput
             ->groupBy('product_id');
 
         $variants = [];
+        $summaryCents = [];
         $optionValues = ['Print Type' => [], 'Sizes' => [], self::MOUNT_OPTION => []];
         $combinations = [];
 
         $usedSurfaceIds = [];
-        foreach ($configuration->printTypes as $printType) {
+        foreach ($configuration->printTypes as $printTypeIndex => $printType) {
             if (isset($usedSurfaceIds[$printType->product_id])) {
                 throw new RuntimeException('Each surface can only be used once in a configuration.');
             }
@@ -90,10 +109,16 @@ class ConfigurationProductInput
                     }
                     $combinations[$key] = true;
 
-                    $price = (int) round((float) $size['price'] * 100) + $includedPrice + $choice['price'];
-                    if ($price < 0) {
+                    $basePrice = (int) round((float) $size['price'] * 100) + $includedPrice + $choice['price'];
+                    if ($basePrice < 0) {
                         throw new RuntimeException('An add-on makes a Shopify variant price negative.');
                     }
+                    $price = $basePrice * $multiplier;
+
+                    $summaryCents[$printTypeIndex] ??= ['min' => $price, 'max' => $price, 'count' => 0];
+                    $summaryCents[$printTypeIndex]['min'] = min($summaryCents[$printTypeIndex]['min'], $price);
+                    $summaryCents[$printTypeIndex]['max'] = max($summaryCents[$printTypeIndex]['max'], $price);
+                    $summaryCents[$printTypeIndex]['count']++;
 
                     $values = ['Print Type' => $printName, 'Sizes' => $sizeName, self::MOUNT_OPTION => $mountName];
                     foreach ($values as $option => $value) {
@@ -112,11 +137,11 @@ class ConfigurationProductInput
         if ($variants === []) {
             throw new RuntimeException('No selected size has complete pricing for a Shopify variant.');
         }
-        if (count($variants) > 2048) {
-            throw new RuntimeException('This configuration exceeds Shopify’s 2,048 variant limit.');
+        if ($enforceLimit && count($variants) > self::MAX_VARIANTS) {
+            throw new RuntimeException('This configuration exceeds the 2,000 variant limit.');
         }
 
-        return [
+        $input = [
             'title' => $configuration->name,
             'productType' => $configuration->shopify_product_type,
             'handle' => 'frame-up-configuration-'.$configuration->id,
@@ -124,6 +149,17 @@ class ConfigurationProductInput
             'productOptions' => collect($optionValues)->map(fn ($values, $name) => ['name' => $name, 'values' => array_values($values)])->values()->all(),
             'variants' => $variants,
         ];
+
+        if ($withPricing) {
+            $input['pricingSummaries'] = collect($summaryCents)->map(fn ($summary, $index) => [
+                'index' => $index,
+                'min_price' => number_format($summary['min'] / 100, 2, '.', ''),
+                'max_price' => number_format($summary['max'] / 100, 2, '.', ''),
+                'variant_count' => $summary['count'],
+            ])->values()->all();
+        }
+
+        return $input;
     }
 
     /** @param array<string, mixed> $size */

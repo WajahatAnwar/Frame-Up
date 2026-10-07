@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Configuration;
 use App\Models\User;
+use App\Services\CatalogConfigurationOptions;
 use App\Services\ConfigurationProductInput;
 use App\Services\ShopifyConfigurationProductSync;
 use App\Services\ShopifyGraphqlGateway;
@@ -189,6 +190,44 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertDatabaseCount('configurations', 0);
     }
 
+    public function test_configuration_rejects_more_than_2000_variants_before_updating(): void
+    {
+        $merchant = User::factory()->create();
+        DB::table('collections')->insert(['id' => 10, 'user_id' => 999, 'title' => 'Canvas']);
+        DB::table('products')->insert(['id' => 20, 'title' => 'Canvas surface', 'addons_check' => 1]);
+        $sizes = array_map(fn (int $id) => [
+            'id' => $id, 'title' => "{$id}x1", 'width' => $id, 'height' => 1, 'price' => 10,
+        ], range(1, 2001));
+        $this->mock(CatalogConfigurationOptions::class)->shouldReceive('all')->andReturn([[
+            'id' => 10, 'title' => 'Canvas', 'surfaces' => [[
+                'id' => 20, 'title' => 'Canvas surface', 'variants' => $sizes, 'addons' => [],
+            ]],
+        ]]);
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(null);
+        $payload = [
+            'name' => 'Many sizes', 'shopify_product_type' => 'Wall art', 'status' => 'active',
+            'print_types' => [[
+                'collection_id' => 10, 'product_id' => 20,
+                'variant_ids' => range(1, 2000), 'addon_ids' => [],
+            ]],
+        ];
+
+        $payload['print_types'][0]['variant_ids'][] = 2001;
+        $this->actingAs($merchant)->post('/configurations', $payload)->assertSessionHasErrors('print_types');
+        $this->assertDatabaseCount('configurations', 0);
+
+        array_pop($payload['print_types'][0]['variant_ids']);
+        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect()->assertSessionDoesntHaveErrors();
+        $configuration = Configuration::firstOrFail();
+        $this->assertCount(2000, app(ConfigurationProductInput::class)->build($configuration->load('printTypes'))['variants']);
+
+        $payload['print_types'][0]['variant_ids'][] = 2001;
+        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)
+            ->assertSessionHasErrors(['print_types']);
+
+        $this->assertCount(2000, $configuration->fresh()->printTypes->first()->selected_variant_ids);
+    }
+
     public function test_merchants_cannot_access_each_others_configurations(): void
     {
         $owner = User::factory()->create();
@@ -209,6 +248,8 @@ class ConfigurationFeatureTest extends TestCase
     public function test_shopify_product_input_prices_each_size_and_mount_with_selected_basic_and_exclusive_addons(): void
     {
         $merchant = User::factory()->create();
+        $merchant->price_multiplier = 1;
+        $merchant->save();
         $this->seedCatalog();
         DB::table('products')->insert(['id' => 35, 'title' => 'Box White', 'addons_check' => 1]);
         DB::table('product_settings')->insert(['id' => 64, 'product_id' => 35, 'addon_options' => 'advance']);
@@ -254,6 +295,8 @@ class ConfigurationFeatureTest extends TestCase
     public function test_flat_addon_prices_apply_only_when_collection_size_ranges_match(): void
     {
         $merchant = User::factory()->create();
+        $merchant->price_multiplier = 1;
+        $merchant->save();
         $this->seedCatalog();
         DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
         DB::table('product_varients')->insert([
@@ -301,6 +344,8 @@ class ConfigurationFeatureTest extends TestCase
     public function test_every_selected_surface_size_and_priced_mount_combination_is_built(): void
     {
         $merchant = User::factory()->create();
+        $merchant->price_multiplier = 1;
+        $merchant->save();
         $this->seedCatalog();
         DB::table('collection_product')->insert(['id' => 41, 'collection_id' => 10, 'product_id' => 21]);
         DB::table('product_settings')->insert(['id' => 64, 'product_id' => 34, 'addon_options' => 'advance']);
@@ -340,6 +385,8 @@ class ConfigurationFeatureTest extends TestCase
     public function test_mount_options_only_create_variants_for_eligible_sizes(): void
     {
         $merchant = User::factory()->create();
+        $merchant->price_multiplier = 1;
+        $merchant->save();
         $this->seedCatalog();
         DB::table('product_settings')->insert(['id' => 64, 'product_id' => 34, 'addon_options' => 'advance']);
         DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);

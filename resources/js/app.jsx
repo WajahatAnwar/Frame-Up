@@ -18,6 +18,7 @@ createInertiaApp({
                     <s-link href={withEmbeddedContext('/')} rel="home" onClick={(event) => visitEmbedded(event, '/')}>Dashboard</s-link>
                     <s-link href={withEmbeddedContext('/configurations')} onClick={(event) => visitEmbedded(event, '/configurations')}>Configurations</s-link>
                     <s-link href={withEmbeddedContext('/catalog')} onClick={(event) => visitEmbedded(event, '/catalog')}>Catalog</s-link>
+                    <s-link href={withEmbeddedContext('/settings')} onClick={(event) => visitEmbedded(event, '/settings')}>Settings</s-link>
                 </s-app-nav>
                 <App {...props} />
             </>,

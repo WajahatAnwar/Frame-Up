@@ -20,6 +20,10 @@ class User extends Authenticatable implements ShopModelContract
     /** @use HasFactory<UserFactory> */
     use HasFactory, Notifiable, ShopModel;
 
+    protected $attributes = [
+        'price_multiplier' => 2,
+    ];
+
     public function configurations(): HasMany
     {
         return $this->hasMany(Configuration::class);
@@ -34,6 +38,7 @@ class User extends Authenticatable implements ShopModelContract
     {
         return [
             'email_verified_at' => 'datetime',
+            'price_multiplier' => 'integer',
             // 'password' => 'hashed',
         ];
     }

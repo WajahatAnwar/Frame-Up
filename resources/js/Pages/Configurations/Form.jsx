@@ -1,6 +1,6 @@
 import { Head, router, useForm } from '@inertiajs/react';
 import { useEffect, useState } from 'react';
-import { withEmbeddedContext } from '../../shopify-auth';
+import { authenticatedFetch, withEmbeddedContext } from '../../shopify-auth';
 import { visitEmbedded } from '../../polaris-navigation';
 
 function emptyPrintType() {
@@ -48,7 +48,7 @@ function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
     );
 }
 
-export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl }) {
+export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, settingsUrl, priceMultiplier }) {
     const readOnly = mode === 'show';
     const { data, setData, post, transform, processing, errors } = useForm({
         name: configuration?.name ?? '',
@@ -59,6 +59,52 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     });
     const [imagePreview, setImagePreview] = useState(configuration?.image_url ?? null);
     const [imageError, setImageError] = useState('');
+    const [priceSummaries, setPriceSummaries] = useState([]);
+    const [priceError, setPriceError] = useState('');
+    const priceSelections = JSON.stringify(data.print_types);
+
+    useEffect(() => {
+        const controller = new AbortController();
+        const selections = JSON.parse(priceSelections);
+        if (!selections.some((row) => row.product_id && row.variant_ids.length > 0)) {
+            setPriceSummaries([]);
+            setPriceError('');
+            return () => controller.abort();
+        }
+
+        const timer = setTimeout(async () => {
+            try {
+                const response = await authenticatedFetch(pricingPreviewUrl, {
+                    method: 'POST',
+                    signal: controller.signal,
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.content ?? '',
+                    },
+                    body: JSON.stringify({
+                        name: data.name || 'Price preview',
+                        shopify_product_type: data.shopify_product_type || 'Price preview',
+                        status: 'draft',
+                        print_types: selections,
+                    }),
+                });
+                const result = await response.json();
+                if (!response.ok) throw new Error(result.message || 'Prices could not be calculated.');
+                setPriceSummaries(result.print_types ?? []);
+                setPriceError('');
+            } catch (error) {
+                if (error.name !== 'AbortError') {
+                    setPriceSummaries([]);
+                    setPriceError(error.message || 'Prices could not be calculated.');
+                }
+            }
+        }, 350);
+
+        return () => {
+            clearTimeout(timer);
+            controller.abort();
+        };
+    }, [priceSelections, pricingPreviewUrl, data.name, data.shopify_product_type]);
 
     useEffect(() => {
         if (!data.image) {
@@ -195,6 +241,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     const other = surface?.addons.filter((addon) => addon.category === 'other') ?? [];
                     const exclusive = (surface?.addons.filter((addon) => addon.category === 'exclusive') ?? [])
                         .reduce((groups, addon) => ({ ...groups, [addon.group]: [...(groups[addon.group] ?? []), addon] }), {});
+                    const priceSummary = priceSummaries.find((summary) => summary.index === index);
 
                     return (
                         <s-section key={printType.key} heading={`Print type ${index + 1}${collection ? ` · ${collection.title}` : ''}`} subheading={surface?.title || 'Choose a print type and surface to set its options.'}>
@@ -279,10 +326,28 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                         </s-stack>
                                     ) : <s-paragraph>Choose a surface to see its add-ons.</s-paragraph>}
                                 </s-section>
+                                <s-section heading="Total selling price">
+                                    {priceSummary ? (
+                                        <s-stack direction="block" gap="tight">
+                                            <s-heading>{priceSummary.min_price === priceSummary.max_price
+                                                ? priceSummary.min_price
+                                                : `${priceSummary.min_price} – ${priceSummary.max_price}`}</s-heading>
+                                            <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including add-ons and the {priceMultiplier}x store multiplier.</s-paragraph>
+                                        </s-stack>
+                                    ) : <s-paragraph>{priceError || 'Select a priced size to see the total.'}</s-paragraph>}
+                                </s-section>
                             </s-stack>
                         </s-section>
                     );
                 })}
+
+                <s-section heading="3. Pricing">
+                    <s-link slot="secondary-actions" href={withEmbeddedContext(settingsUrl)} onClick={(event) => visitEmbedded(event, settingsUrl)}>Edit in Settings</s-link>
+                    <s-stack direction="block" gap="tight">
+                        <s-paragraph>Store price multiplier: <s-badge>{priceMultiplier}x</s-badge></s-paragraph>
+                        <s-paragraph>Each Shopify variant uses its surface, size, and applicable add-on total multiplied by this value.</s-paragraph>
+                    </s-stack>
+                </s-section>
 
                 {!readOnly && <s-button variant="primary" loading={processing} disabled={processing} onClick={save}>Save configuration</s-button>}
 

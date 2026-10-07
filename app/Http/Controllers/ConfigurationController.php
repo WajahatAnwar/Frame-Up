@@ -62,7 +62,7 @@ class ConfigurationController extends Controller
         ]);
     }
 
-    public function create(CatalogConfigurationOptions $options): Response
+    public function create(Request $request, CatalogConfigurationOptions $options): Response
     {
         return Inertia::render('Configurations/Form', [
             'mode' => 'create',
@@ -72,6 +72,9 @@ class ConfigurationController extends Controller
             'indexUrl' => route('configurations.index', absolute: false),
             'dashboardUrl' => route('home', absolute: false),
             'catalogUrl' => route('catalog.page', absolute: false),
+            'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
+            'settingsUrl' => route('settings.edit', absolute: false),
+            'priceMultiplier' => $request->user()->price_multiplier,
         ]);
     }
 
@@ -104,14 +107,14 @@ class ConfigurationController extends Controller
     {
         $this->assertOwner($request, $configuration);
 
-        return $this->formPage($configuration, $options, 'show');
+        return $this->formPage($request, $configuration, $options, 'show');
     }
 
     public function edit(Request $request, Configuration $configuration, CatalogConfigurationOptions $options): Response
     {
         $this->assertOwner($request, $configuration);
 
-        return $this->formPage($configuration, $options, 'edit');
+        return $this->formPage($request, $configuration, $options, 'edit');
     }
 
     public function update(SaveConfigurationRequest $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync): RedirectResponse
@@ -154,7 +157,7 @@ class ConfigurationController extends Controller
         return $this->redirectTo($request, 'configurations.index');
     }
 
-    private function formPage(Configuration $configuration, CatalogConfigurationOptions $options, string $mode): Response
+    private function formPage(Request $request, Configuration $configuration, CatalogConfigurationOptions $options, string $mode): Response
     {
         $configuration->load('printTypes');
 
@@ -171,6 +174,9 @@ class ConfigurationController extends Controller
             'indexUrl' => route('configurations.index', absolute: false),
             'dashboardUrl' => route('home', absolute: false),
             'catalogUrl' => route('catalog.page', absolute: false),
+            'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
+            'settingsUrl' => route('settings.edit', absolute: false),
+            'priceMultiplier' => $request->user()->price_multiplier,
         ]);
     }
 
