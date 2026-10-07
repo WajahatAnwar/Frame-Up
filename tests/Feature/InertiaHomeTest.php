@@ -50,6 +50,21 @@ class InertiaHomeTest extends TestCase
             );
     }
 
+    public function test_plans_route_renders_the_free_plan_page_for_a_verified_shop(): void
+    {
+        $shop = User::factory()->create(['name' => 'plans-shop.myshopify.com']);
+
+        $this->withoutMiddleware([VerifyShopify::class])
+            ->actingAs($shop)
+            ->get('/plans?shop=plans-shop.myshopify.com&host=test-host')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->component('Plans'));
+
+        $route = app('router')->getRoutes()->getByName('plans.page');
+        $this->assertNotNull($route);
+        $this->assertContains('verify.shopify', $route->middleware());
+    }
+
     public function test_home_route_uses_package_authentication_and_billing_middleware(): void
     {
         $route = app('router')->getRoutes()->getByName('home');

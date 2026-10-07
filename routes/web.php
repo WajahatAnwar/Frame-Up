@@ -5,6 +5,7 @@ use App\Http\Controllers\CatalogSyncController;
 use App\Http\Controllers\ConfigurationController;
 use App\Http\Controllers\ConfigurationPricingPreviewController;
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\PlansController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\TemporaryAuthCheckController;
 use Illuminate\Support\Facades\Route;
@@ -27,6 +28,10 @@ Route::post('/catalog/sync', CatalogSyncController::class)
 Route::get('/catalog', CatalogPageController::class)
     ->middleware(['verify.shopify', 'billable'])
     ->name('catalog.page');
+
+Route::get('/plans', PlansController::class)
+    ->middleware(['verify.shopify'])
+    ->name('plans.page');
 
 Route::post('/configurations/price-preview', ConfigurationPricingPreviewController::class)
     ->middleware(['verify.shopify', 'billable', 'throttle:60,1'])
