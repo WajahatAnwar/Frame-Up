@@ -5,11 +5,16 @@ namespace App\Http\Controllers;
 use App\Http\Requests\SaveConfigurationRequest;
 use App\Models\Configuration;
 use App\Services\CatalogConfigurationOptions;
+use App\Services\ShopifyConfigurationProductSync;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Inertia\Inertia;
 use Inertia\Response;
+use RuntimeException;
+use Throwable;
 
 class ConfigurationController extends Controller
 {
@@ -70,19 +75,29 @@ class ConfigurationController extends Controller
         ]);
     }
 
-    public function store(SaveConfigurationRequest $request): RedirectResponse
+    public function store(SaveConfigurationRequest $request, ShopifyConfigurationProductSync $shopifySync): RedirectResponse
     {
-        $configuration = DB::transaction(function () use ($request): Configuration {
-            $configuration = Configuration::create([
-                ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
-                'user_id' => $request->user()->id,
-            ]);
-            $this->savePrintTypes($configuration, $request->validated('print_types'));
+        $imagePath = $this->storeImage($request);
+        try {
+            $configuration = DB::transaction(function () use ($request, $imagePath): Configuration {
+                $configuration = Configuration::create([
+                    ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
+                    'user_id' => $request->user()->id,
+                    'image_path' => $imagePath,
+                ]);
+                $this->savePrintTypes($configuration, $request->validated('print_types'));
 
-            return $configuration;
-        });
+                return $configuration;
+            });
+        } catch (Throwable $exception) {
+            if ($imagePath) {
+                Storage::disk('public')->delete($imagePath);
+            }
 
-        return $this->redirectTo($request, 'configurations.show', $configuration);
+            throw $exception;
+        }
+
+        return $this->syncAndRedirect($request, $configuration, $shopifySync);
     }
 
     public function show(Request $request, Configuration $configuration, CatalogConfigurationOptions $options): Response
@@ -99,22 +114,42 @@ class ConfigurationController extends Controller
         return $this->formPage($configuration, $options, 'edit');
     }
 
-    public function update(SaveConfigurationRequest $request, Configuration $configuration): RedirectResponse
+    public function update(SaveConfigurationRequest $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync): RedirectResponse
     {
         $this->assertOwner($request, $configuration);
-        DB::transaction(function () use ($configuration, $request): void {
-            $configuration->update($request->safe()->only(['name', 'shopify_product_type', 'status']));
-            $configuration->printTypes()->delete();
-            $this->savePrintTypes($configuration, $request->validated('print_types'));
-        });
+        $oldImagePath = $configuration->image_path;
+        $imagePath = $this->storeImage($request);
+        try {
+            DB::transaction(function () use ($configuration, $request, $imagePath): void {
+                $configuration->update([
+                    ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
+                    ...($imagePath ? ['image_path' => $imagePath] : []),
+                ]);
+                $configuration->printTypes()->delete();
+                $this->savePrintTypes($configuration, $request->validated('print_types'));
+            });
+        } catch (Throwable $exception) {
+            if ($imagePath) {
+                Storage::disk('public')->delete($imagePath);
+            }
 
-        return $this->redirectTo($request, 'configurations.show', $configuration);
+            throw $exception;
+        }
+        if ($imagePath && $oldImagePath) {
+            Storage::disk('public')->delete($oldImagePath);
+        }
+
+        return $this->syncAndRedirect($request, $configuration, $shopifySync);
     }
 
     public function destroy(Request $request, Configuration $configuration): RedirectResponse
     {
         $this->assertOwner($request, $configuration);
+        $imagePath = $configuration->image_path;
         $configuration->delete();
+        if ($imagePath) {
+            Storage::disk('public')->delete($imagePath);
+        }
 
         return $this->redirectTo($request, 'configurations.index');
     }
@@ -125,7 +160,10 @@ class ConfigurationController extends Controller
 
         return Inertia::render('Configurations/Form', [
             'mode' => $mode,
-            'configuration' => $configuration,
+            'configuration' => [
+                ...$configuration->toArray(),
+                'image_url' => $configuration->image_path ? Storage::disk('public')->url($configuration->image_path) : null,
+            ],
             'catalog' => $options->all(),
             'submitUrl' => route('configurations.update', $configuration, false),
             'editUrl' => route('configurations.edit', $configuration, false),
@@ -144,10 +182,24 @@ class ConfigurationController extends Controller
                 'collection_id' => $printType['collection_id'] ?? null,
                 'product_id' => $printType['product_id'] ?? null,
                 'position' => $position,
-                'selected_variant_ids' => $printType['variant_ids'],
-                'selected_addon_ids' => $printType['addon_ids'],
+                'selected_variant_ids' => array_values(array_unique(array_map('intval', $printType['variant_ids']))),
+                'selected_addon_ids' => array_values(array_unique(array_map('intval', $printType['addon_ids']))),
             ]);
         }
+    }
+
+    private function storeImage(SaveConfigurationRequest $request): ?string
+    {
+        if (! $request->hasFile('image')) {
+            return null;
+        }
+
+        $path = $request->file('image')->storePublicly('configuration-images', 'public');
+        if (! $path) {
+            throw new RuntimeException('The configuration image could not be stored.');
+        }
+
+        return $path;
     }
 
     private function assertOwner(Request $request, Configuration $configuration): void
@@ -162,5 +214,27 @@ class ConfigurationController extends Controller
             'shop' => $request->query('shop'),
             'host' => $request->query('host'),
         ]));
+    }
+
+    private function syncAndRedirect(Request $request, Configuration $configuration, ShopifyConfigurationProductSync $shopifySync): RedirectResponse
+    {
+        try {
+            $shopifySync->sync($configuration);
+
+            return $this->redirectTo($request, 'configurations.show', $configuration);
+        } catch (Throwable $exception) {
+            Log::error('Configuration Shopify product sync failed', [
+                'configuration_id' => $configuration->id,
+                'shop_id' => $configuration->user_id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            $reason = $exception instanceof RuntimeException
+                ? $exception->getMessage()
+                : 'Please try saving again or check the Shopify connection.';
+
+            return $this->redirectTo($request, 'configurations.edit', $configuration)
+                ->withErrors(['shopify' => 'The configuration was saved, but its Shopify product could not be updated: '.$reason]);
+        }
     }
 }

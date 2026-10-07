@@ -7,7 +7,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'name', 'shopify_product_type', 'status'])]
+#[Fillable(['user_id', 'name', 'shopify_product_type', 'status', 'shopify_product_id', 'image_path', 'shopify_image_id', 'shopify_synced_image_path'])]
 class Configuration extends Model
 {
     public function user(): BelongsTo

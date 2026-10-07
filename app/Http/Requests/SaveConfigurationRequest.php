@@ -10,6 +10,20 @@ use Illuminate\Validation\Validator;
 
 class SaveConfigurationRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        $printTypes = collect($this->input('print_types', []))->map(function (array $printType): array {
+            $printType['variant_ids'] = collect($printType['variant_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+            $printType['addon_ids'] = collect($printType['addon_ids'] ?? [])
+                ->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+
+            return $printType;
+        })->values()->all();
+
+        $this->merge(['print_types' => $printTypes]);
+    }
+
     public function authorize(): bool
     {
         $configuration = $this->route('configuration');
@@ -25,13 +39,14 @@ class SaveConfigurationRequest extends FormRequest
             'name' => ['required', 'string', 'max:255'],
             'shopify_product_type' => ['required', 'string', 'max:255'],
             'status' => ['required', Rule::in(['draft', 'active'])],
+            'image' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:5120'],
             'print_types' => ['present', 'array', 'max:20'],
             'print_types.*.collection_id' => ['nullable', 'integer'],
             'print_types.*.product_id' => ['nullable', 'integer'],
             'print_types.*.variant_ids' => ['present', 'array'],
-            'print_types.*.variant_ids.*' => ['integer', 'distinct'],
+            'print_types.*.variant_ids.*' => ['integer'],
             'print_types.*.addon_ids' => ['present', 'array'],
-            'print_types.*.addon_ids.*' => ['integer', 'distinct'],
+            'print_types.*.addon_ids.*' => ['integer'],
         ];
     }
 
@@ -50,6 +65,7 @@ class SaveConfigurationRequest extends FormRequest
             }
 
             $collections = collect(app(CatalogConfigurationOptions::class)->all())->keyBy('id');
+            $surfaceIndexes = [];
             foreach ($printTypes as $index => $printType) {
                 $collectionId = $printType['collection_id'] ?? null;
                 $productId = $printType['product_id'] ?? null;
@@ -70,6 +86,12 @@ class SaveConfigurationRequest extends FormRequest
                 }
                 if (! $surface) {
                     continue;
+                }
+
+                if ($productId !== null && $productId !== '' && isset($surfaceIndexes[(int) $productId])) {
+                    $validator->errors()->add("print_types.{$index}.product_id", 'Each surface can only be used once in a configuration.');
+                } else {
+                    $surfaceIndexes[(int) $productId] = $index;
                 }
 
                 $availableVariants = array_column($surface['variants'], 'id');

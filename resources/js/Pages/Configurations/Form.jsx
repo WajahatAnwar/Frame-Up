@@ -1,4 +1,5 @@
 import { Head, router, useForm } from '@inertiajs/react';
+import { useEffect, useState } from 'react';
 import { withEmbeddedContext } from '../../shopify-auth';
 import { visitEmbedded } from '../../polaris-navigation';
 
@@ -17,13 +18,13 @@ function initialPrintTypes(configuration) {
         key: printType.id,
         collection_id: printType.collection_id ?? '',
         product_id: printType.product_id ?? '',
-        variant_ids: printType.selected_variant_ids ?? [],
-        addon_ids: printType.selected_addon_ids ?? [],
+        variant_ids: [...new Set((printType.selected_variant_ids ?? []).map(Number))],
+        addon_ids: [...new Set((printType.selected_addon_ids ?? []).map(Number))],
     }));
 }
 
 function toggleId(ids, id, checked) {
-    return checked ? [...ids, id] : ids.filter((existing) => existing !== id);
+    return checked ? [...new Set([...ids, Number(id)])] : ids.filter((existing) => Number(existing) !== Number(id));
 }
 
 function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
@@ -49,12 +50,26 @@ function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
 
 export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl }) {
     const readOnly = mode === 'show';
-    const { data, setData, post, put, processing, errors } = useForm({
+    const { data, setData, post, transform, processing, errors } = useForm({
         name: configuration?.name ?? '',
         shopify_product_type: configuration?.shopify_product_type ?? '',
         status: configuration?.status ?? 'draft',
+        image: null,
         print_types: initialPrintTypes(configuration),
     });
+    const [imagePreview, setImagePreview] = useState(configuration?.image_url ?? null);
+    const [imageError, setImageError] = useState('');
+
+    useEffect(() => {
+        if (!data.image) {
+            setImagePreview(configuration?.image_url ?? null);
+            return;
+        }
+
+        const objectUrl = URL.createObjectURL(data.image);
+        setImagePreview(objectUrl);
+        return () => URL.revokeObjectURL(objectUrl);
+    }, [data.image, configuration?.image_url]);
 
     function updatePrintType(index, changes) {
         setData('print_types', data.print_types.map((printType, current) => current === index ? { ...printType, ...changes } : printType));
@@ -62,9 +77,21 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
 
     function save() {
         const url = withEmbeddedContext(submitUrl);
-        const options = { preserveScroll: true };
-        if (mode === 'create') post(url, options);
-        else put(url, options);
+        transform((values) => mode === 'create' ? values : { ...values, _method: 'put' });
+        post(url, { preserveScroll: true, forceFormData: true });
+    }
+
+    function selectImage(event) {
+        const file = event.currentTarget.files?.[0] ?? null;
+        if (file && file.size > 5 * 1024 * 1024) {
+            setImageError('Choose an image smaller than 5 MB.');
+            setData('image', null);
+            event.currentTarget.value = '';
+            return;
+        }
+
+        setImageError('');
+        setData('image', file);
     }
 
     function remove() {
@@ -120,9 +147,38 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                             <s-option value="draft">Draft</s-option>
                             <s-option value="active">Active</s-option>
                         </s-select>
+                        <s-section heading="Product image">
+                            <s-stack direction="block" gap="base">
+                                {imagePreview && <s-thumbnail src={imagePreview} alt={`${data.name || 'Configuration'} product image`} size="large" />}
+                                {!readOnly && (
+                                    <s-drop-zone
+                                        label={configuration?.image_path ? 'Replace product image' : 'Add product image'}
+                                        accessibilityLabel="Choose a JPEG, PNG, or WebP product image"
+                                        accept="image/jpeg,image/png,image/webp"
+                                        disabled={processing}
+                                        error={imageError || errors.image}
+                                        onChange={selectImage}
+                                        onDropRejected={() => setImageError('Choose a JPEG, PNG, or WebP image.')}
+                                    />
+                                )}
+                                {data.image && <s-text>{data.image.name}</s-text>}
+                                {!imagePreview && readOnly && <s-paragraph>No product image selected.</s-paragraph>}
+                                {!readOnly && <s-paragraph>Optional. JPEG, PNG, or WebP, up to 5 MB. This becomes the first Shopify product image.</s-paragraph>}
+                            </s-stack>
+                        </s-section>
                         <s-paragraph>Active configurations require a surface, a preset size, and at least one option in every exclusive group.</s-paragraph>
                     </s-stack>
                 </s-section>
+
+                {configuration && (
+                    <s-section heading="Shopify product">
+                        <s-paragraph>
+                            {configuration.shopify_product_id
+                                ? `Linked product: ${configuration.shopify_product_id}`
+                                : 'No Shopify product yet. Complete a print type with a priced preset size, then save to create one.'}
+                        </s-paragraph>
+                    </s-section>
+                )}
 
                 <s-section heading="2. Print types" subheading="Add the print choices available for this Shopify product type.">
                     <s-stack direction="block" gap="base">
@@ -174,7 +230,17 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                             })}
                                         >
                                             <s-option value="">Choose a surface</s-option>
-                                            {collection?.surfaces.map((item) => <s-option key={item.id} value={String(item.id)}>{item.title}</s-option>)}
+                                            {collection?.surfaces.map((item) => {
+                                                const usedByAnotherPrintType = data.print_types.some((other, otherIndex) =>
+                                                    otherIndex !== index && Number(other.product_id) === Number(item.id),
+                                                );
+
+                                                return (
+                                                    <s-option key={item.id} value={String(item.id)} disabled={usedByAnotherPrintType}>
+                                                        {item.title}{usedByAnotherPrintType ? ' (already selected)' : ''}
+                                                    </s-option>
+                                                );
+                                            })}
                                         </s-select>
                                     </s-stack>
                                 </s-section>
