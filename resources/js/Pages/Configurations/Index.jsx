@@ -37,6 +37,9 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
 
     function applyFilters(changes = {}) {
         window.clearTimeout(searchTimer.current);
+        if(changes?.print_type == 'none') {
+            changes.print_type = '';
+        }
         const next = { search: search.trim(), status, print_type: printType, sort, ...changes };
         router.get(withEmbeddedContext(indexUrl), Object.fromEntries(Object.entries(next).filter(([, value]) => value !== '' && value !== 'recent')), {
             preserveState: true,
@@ -92,7 +95,7 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
                                         onKeyDown={(event) => { if (event.key === 'Enter') applyFilters({ search: search.trim() }); }}
                                     />
                                     <s-select label="Print type" value={printType} onChange={(event) => { const value = event.currentTarget.value; setPrintType(value); applyFilters({ print_type: value }); }}>
-                                        <s-option value="">All print types</s-option>
+                                        <s-option value="none">All print types</s-option>
                                         {printTypeOptions.map((option) => <s-option key={option.id} value={option.id}>{option.title}</s-option>)}
                                     </s-select>
                                     <s-select label="Sort by" value={sort} onChange={(event) => { const value = event.currentTarget.value; setSort(value); applyFilters({ sort: value }); }}>
