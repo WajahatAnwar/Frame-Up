@@ -37,7 +37,7 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
 
     function applyFilters(changes = {}) {
         window.clearTimeout(searchTimer.current);
-        if(changes?.print_type == 'none') {
+        if(changes?.print_type == 'none' || printType == 'none') {
             changes.print_type = '';
         }
         const next = { search: search.trim(), status, print_type: printType, sort, ...changes };
