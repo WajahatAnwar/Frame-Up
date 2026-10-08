@@ -352,12 +352,14 @@ class ConfigurationFeatureTest extends TestCase
         $merchant = User::factory()->create();
         DB::table('collections')->insert(['id' => 10, 'user_id' => 999, 'title' => 'Canvas']);
         DB::table('products')->insert(['id' => 20, 'title' => 'Canvas surface', 'addons_check' => 1]);
+        DB::table('products')->insert(['id' => 30, 'title' => 'Mount']);
+        DB::table('product_varients')->insert(['id' => 3000, 'product_id' => 30, 'variant_type' => 'predefined', 'is_active' => 1, 'price' => 0]);
         $sizes = array_map(fn (int $id) => [
             'id' => $id, 'title' => "{$id}x1", 'width' => $id, 'height' => 1, 'price' => 10,
         ], range(1, 2001));
         $this->mock(CatalogConfigurationOptions::class)->shouldReceive('all')->andReturn([[
             'id' => 10, 'title' => 'Canvas', 'surfaces' => [[
-                'id' => 20, 'title' => 'Canvas surface', 'variants' => $sizes, 'addons' => [],
+                'id' => 20, 'title' => 'Canvas surface', 'variants' => $sizes, 'addons' => [['id' => 30, 'title' => 'Mount', 'category' => 'advance']],
             ]],
         ]]);
         $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(0);
@@ -365,7 +367,7 @@ class ConfigurationFeatureTest extends TestCase
             'name' => 'Many sizes', 'shopify_product_type' => 'Wall art', 'status' => 'active',
             'print_types' => [[
                 'collection_id' => 10, 'product_id' => 20,
-                'variant_ids' => range(1, 2000), 'addon_ids' => [],
+                'variant_ids' => range(1, 2000), 'addon_ids' => [30],
             ]],
         ];
 
@@ -484,6 +486,7 @@ class ConfigurationFeatureTest extends TestCase
         $merchant->price_multiplier = 1;
         $merchant->save();
         $this->seedCatalog();
+        DB::table('product_varients')->insert(['id' => 90, 'product_id' => 33, 'variant_type' => 'predefined', 'is_active' => 1, 'price' => 0]);
         DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
         DB::table('product_varients')->insert([
             ['id' => 52, 'product_id' => 20, 'variant_type' => 'predefined', 'is_active' => 1, 'width' => 8, 'height' => 8, 'price' => 20],
@@ -495,7 +498,7 @@ class ConfigurationFeatureTest extends TestCase
         ]);
         $printType = $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
-            'selected_variant_ids' => [50, 52], 'selected_addon_ids' => [30],
+            'selected_variant_ids' => [50, 52], 'selected_addon_ids' => [30, 33],
         ]);
 
         $unrestricted = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
@@ -506,7 +509,7 @@ class ConfigurationFeatureTest extends TestCase
             ['product_id' => 31, 'collection_id' => 10, 'min_width' => 8, 'max_width' => 20, 'min_height' => 8, 'max_height' => 20],
             ['product_id' => 32, 'collection_id' => 10, 'min_width' => 12, 'max_width' => 20, 'min_height' => 12, 'max_height' => 20],
         ]);
-        $printType->update(['selected_addon_ids' => [30, 31, 32]]);
+        $printType->update(['selected_addon_ids' => [30, 31, 32, 33]]);
 
         $restricted = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
         $this->assertSame(['10.00', '100.00'], array_column($restricted['variants'], 'price'));
@@ -514,14 +517,14 @@ class ConfigurationFeatureTest extends TestCase
         DB::table('addons_collections_sizes')->where('product_id', 31)->update([
             'min_width' => 6, 'max_width' => 6, 'min_height' => 4, 'max_height' => 4,
         ]);
-        $printType->update(['selected_addon_ids' => [31]]);
+        $printType->update(['selected_addon_ids' => [31, 33]]);
         $rotated = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
         $this->assertSame(['15.00', '20.00'], array_column($rotated['variants'], 'price'));
 
         DB::table('addons_collections_sizes')->where('product_id', 32)->update([
             'min_width' => 8, 'max_width' => 8, 'min_height' => 8, 'max_height' => 8,
         ]);
-        $printType->update(['selected_addon_ids' => [32]]);
+        $printType->update(['selected_addon_ids' => [32, 33]]);
         $withoutUnpricedAddon = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
         $this->assertSame(['10.00', '20.00'], array_column($withoutUnpricedAddon['variants'], 'price'));
         $this->assertSame(['4x6', '8x8'], array_column($withoutUnpricedAddon['productOptions'][1]['values'], 'name'));
@@ -598,15 +601,35 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertSame(['Floating frame', 'Mount'], array_column($input['productOptions'][2]['values'], 'name'));
 
         $printType->update(['selected_addon_ids' => [34]]);
-        $withFallback = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
-        $this->assertSame(['10.00', '26.00'], array_column($withFallback['variants'], 'price'));
-        $this->assertSame(['None', 'Mount'], array_column($withFallback['productOptions'][2]['values'], 'name'));
+        $withOnlyEligibleMount = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
+        $this->assertSame(['26.00'], array_column($withOnlyEligibleMount['variants'], 'price'));
+        $this->assertSame(['8x8'], array_column($withOnlyEligibleMount['productOptions'][1]['values'], 'name'));
+        $this->assertSame(['Mount'], array_column($withOnlyEligibleMount['productOptions'][2]['values'], 'name'));
 
         DB::table('product_varients')->where('id', 81)->delete();
-        $withoutUnpricedMount = app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
-        $this->assertSame(['10.00', '20.00'], array_column($withoutUnpricedMount['variants'], 'price'));
-        $this->assertSame(['4x6', '8x8'], array_column($withoutUnpricedMount['productOptions'][1]['values'], 'name'));
-        $this->assertSame(['None'], array_column($withoutUnpricedMount['productOptions'][2]['values'], 'name'));
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('No selected size has an eligible advanced add-on with available pricing.');
+        app(ConfigurationProductInput::class)->build($configuration->load('printTypes'));
+    }
+
+    public function test_no_priced_mount_combinations_prevents_shopify_requests(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Canvas setup', 'shopify_product_type' => 'Wall art', 'status' => 'active',
+        ]);
+        $configuration->printTypes()->create([
+            'collection_id' => 10, 'product_id' => 20, 'position' => 0,
+            'selected_variant_ids' => [50], 'selected_addon_ids' => [33],
+        ]);
+        $this->mock(ShopifyProductCatalog::class)->shouldNotReceive('productsOfType');
+        $this->mock(ShopifyGraphqlGateway::class)->shouldNotReceive('query');
+
+        $this->expectException(RuntimeException::class);
+        $this->expectExceptionMessage('No selected size has an eligible advanced add-on with available pricing.');
+        app(ShopifyConfigurationProductSync::class)->sync($configuration);
     }
 
     public function test_saving_a_complete_configuration_upserts_and_links_the_shopify_product(): void
@@ -631,13 +654,13 @@ class ConfigurationFeatureTest extends TestCase
             'productOptions' => [
                 ['name' => 'Print Type', 'values' => [['name' => 'Canvas - Giclée Canvas']]],
                 ['name' => 'Sizes', 'values' => [['name' => '4x6']]],
-                ['name' => 'Mounts and Frames', 'values' => [['name' => 'None']]],
+                ['name' => 'Mounts and Frames', 'values' => [['name' => 'Floating frame']]],
             ],
             'variants' => [[
                 'optionValues' => [
                     ['optionName' => 'Print Type', 'name' => 'Canvas - Giclée Canvas'],
                     ['optionName' => 'Sizes', 'name' => '4x6'],
-                    ['optionName' => 'Mounts and Frames', 'name' => 'None'],
+                    ['optionName' => 'Mounts and Frames', 'name' => 'Floating frame'],
                 ],
                 'price' => '10.00', 'sku' => 'frameup-test', 'inventoryPolicy' => 'CONTINUE',
             ]],
@@ -677,7 +700,7 @@ class ConfigurationFeatureTest extends TestCase
                 'options' => [
                     ['id' => 'gid://shopify/ProductOption/1', 'name' => 'Print Type', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/1', 'name' => 'Canvas - Giclée Canvas']]],
                     ['id' => 'gid://shopify/ProductOption/2', 'name' => 'Sizes', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/2', 'name' => '4x6']]],
-                    ['id' => 'gid://shopify/ProductOption/3', 'name' => 'Mounts and Frames', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/3', 'name' => 'None']]],
+                    ['id' => 'gid://shopify/ProductOption/3', 'name' => 'Mounts and Frames', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/3', 'name' => 'Floating frame']]],
                 ],
                 'media' => [
                     'nodes' => [['id' => 'gid://shopify/MediaImage/10'], ['id' => 'gid://shopify/MediaImage/11']],
@@ -688,12 +711,12 @@ class ConfigurationFeatureTest extends TestCase
                         ['id' => 'gid://shopify/ProductVariant/5', 'selectedOptions' => [
                             ['name' => 'Print Type', 'value' => 'Canvas - Giclée Canvas'],
                             ['name' => 'Sizes', 'value' => '4x6'],
-                            ['name' => 'Mounts and Frames', 'value' => 'None'],
+                            ['name' => 'Mounts and Frames', 'value' => 'Floating frame'],
                         ]],
                         ['id' => 'gid://shopify/ProductVariant/6', 'selectedOptions' => [
                             ['name' => 'Print Type', 'value' => 'Canvas - Giclée Canvas'],
                             ['name' => 'Sizes', 'value' => '8x8'],
-                            ['name' => 'Mounts and Frames', 'value' => 'None'],
+                            ['name' => 'Mounts and Frames', 'value' => 'Floating frame'],
                         ]],
                     ],
                     'pageInfo' => ['hasNextPage' => false, 'endCursor' => null],
@@ -732,13 +755,14 @@ class ConfigurationFeatureTest extends TestCase
     {
         $merchant = User::factory()->create();
         $this->seedCatalog();
+        DB::table('product_varients')->insert(['id' => 90, 'product_id' => 33, 'variant_type' => 'predefined', 'is_active' => 1, 'price' => 0]);
         DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
         $configuration = Configuration::create([
             'user_id' => $merchant->id, 'name' => 'Frame', 'shopify_product_type' => 'Frame', 'status' => 'active',
         ]);
         $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
-            'selected_variant_ids' => [50], 'selected_addon_ids' => [],
+            'selected_variant_ids' => [50], 'selected_addon_ids' => [33],
         ]);
         $this->mock(ShopifyProductCatalog::class)
             ->shouldReceive('productsOfType')->once()
@@ -759,7 +783,7 @@ class ConfigurationFeatureTest extends TestCase
                     'options' => $productId === 'gid://shopify/Product/1' ? [
                         ['id' => 'gid://shopify/ProductOption/1', 'name' => 'Print Type', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/1', 'name' => 'Canvas - Giclée Canvas']]],
                         ['id' => 'gid://shopify/ProductOption/2', 'name' => 'Sizes', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/2', 'name' => '4x6']]],
-                        ['id' => 'gid://shopify/ProductOption/3', 'name' => 'Mounts and Frames', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/3', 'name' => 'None']]],
+                        ['id' => 'gid://shopify/ProductOption/3', 'name' => 'Mounts and Frames', 'optionValues' => [['id' => 'gid://shopify/ProductOptionValue/3', 'name' => 'Floating frame']]],
                     ] : [],
                     'media' => ['nodes' => [], 'pageInfo' => ['hasNextPage' => false]],
                     'variants' => [
@@ -768,7 +792,7 @@ class ConfigurationFeatureTest extends TestCase
                             'selectedOptions' => [
                                 ['name' => 'Print Type', 'value' => 'Canvas - Giclée Canvas'],
                                 ['name' => 'Sizes', 'value' => '4x6'],
-                                ['name' => 'Mounts and Frames', 'value' => 'None'],
+                                ['name' => 'Mounts and Frames', 'value' => 'Floating frame'],
                             ],
                         ]] : [],
                         'pageInfo' => ['hasNextPage' => false, 'endCursor' => null],
@@ -800,13 +824,14 @@ class ConfigurationFeatureTest extends TestCase
     {
         $merchant = User::factory()->create();
         $this->seedCatalog();
+        DB::table('product_varients')->insert(['id' => 90, 'product_id' => 33, 'variant_type' => 'predefined', 'is_active' => 1, 'price' => 0]);
         DB::table('product_varients')->where('id', 50)->update(['width' => 4, 'height' => 6, 'price' => 10]);
         $configuration = Configuration::create([
             'user_id' => $merchant->id, 'name' => 'Frame', 'shopify_product_type' => 'Frame', 'status' => 'active',
         ]);
         $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
-            'selected_variant_ids' => [50], 'selected_addon_ids' => [],
+            'selected_variant_ids' => [50], 'selected_addon_ids' => [33],
         ]);
         $this->mock(ShopifyProductCatalog::class)
             ->shouldReceive('productsOfType')->twice()
@@ -894,13 +919,13 @@ class ConfigurationFeatureTest extends TestCase
             'productOptions' => [
                 ['name' => 'Print Type', 'values' => [['name' => 'Canvas']]],
                 ['name' => 'Sizes', 'values' => [['name' => '4x6']]],
-                ['name' => 'Mounts and Frames', 'values' => [['name' => 'None']]],
+                ['name' => 'Mounts and Frames', 'values' => [['name' => 'Floating frame']]],
             ],
             'variants' => [[
                 'optionValues' => [
                     ['optionName' => 'Print Type', 'name' => 'Canvas'],
                     ['optionName' => 'Sizes', 'name' => '4x6'],
-                    ['optionName' => 'Mounts and Frames', 'name' => 'None'],
+                    ['optionName' => 'Mounts and Frames', 'name' => 'Floating frame'],
                 ],
                 'price' => '10.00', 'sku' => 'frameup-test', 'inventoryPolicy' => 'CONTINUE',
             ]],

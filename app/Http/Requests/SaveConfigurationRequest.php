@@ -133,7 +133,7 @@ class SaveConfigurationRequest extends FormRequest
                     ->where('category', 'advance')
                     ->whereIn('id', $addonIds)
                     ->count();
-                if ($active && collect($surface['addons'])->contains('category', 'advance') && $selectedMountCount === 0) {
+                if ($active && $selectedMountCount === 0) {
                     $validator->errors()->add("print_types.{$index}.addon_ids", 'Select at least one advanced add-on.');
                 }
                 $maximumPossibleVariants += count($variantIds) * max(1, $selectedMountCount);

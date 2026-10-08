@@ -47,6 +47,7 @@ class SettingsFeatureTest extends TestCase
         DB::table('products')->insert([
             ['id' => 20, 'title' => 'Canvas surface', 'addons_check' => 1],
             ['id' => 30, 'title' => 'Image enhancement', 'addons_check' => 1],
+            ['id' => 31, 'title' => 'Float Mount', 'addons_check' => 1],
         ]);
         DB::table('collection_product')->insert(['id' => 40, 'collection_id' => 10, 'product_id' => 20]);
         DB::table('product_varients')->insert([
@@ -54,6 +55,9 @@ class SettingsFeatureTest extends TestCase
             ['id' => 51, 'product_id' => 20, 'variant_type' => 'predefined', 'is_active' => 1, 'width' => 8, 'height' => 8, 'price' => 20],
             ['id' => 80, 'product_id' => 30, 'variant_type' => 'predefined', 'is_active' => 1, 'width' => null, 'height' => null, 'price' => 5],
         ]);
+        DB::table('product_varients')->insert(['id' => 81, 'product_id' => 31, 'variant_type' => 'predefined', 'is_active' => 1, 'price' => 0]);
+        DB::table('product_settings')->insert(['id' => 61, 'product_id' => 31, 'addon_options' => 'advance']);
+        DB::table('addon_product')->insert(['id' => 71, 'product_id' => 20, 'addon_id' => 31, 'status' => 1]);
         DB::table('product_settings')->insert(['id' => 60, 'product_id' => 30, 'addon_options' => 'basic']);
         DB::table('addon_product')->insert(['id' => 70, 'product_id' => 20, 'addon_id' => 30, 'status' => 1]);
 
@@ -62,7 +66,7 @@ class SettingsFeatureTest extends TestCase
         ]);
         $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
-            'selected_variant_ids' => [50, 51], 'selected_addon_ids' => [30],
+            'selected_variant_ids' => [50, 51], 'selected_addon_ids' => [30, 31],
         ]);
 
         $this->assertSame(['30.00', '50.00'], array_column(app(ConfigurationProductInput::class)->build($configuration)['variants'], 'price'));
@@ -70,7 +74,7 @@ class SettingsFeatureTest extends TestCase
         $payload = [
             'name' => 'Canvas setup', 'shopify_product_type' => 'Wall art', 'status' => 'draft',
             'print_types' => [[
-                'collection_id' => 10, 'product_id' => 20, 'variant_ids' => [50, 51], 'addon_ids' => [30],
+                'collection_id' => 10, 'product_id' => 20, 'variant_ids' => [50, 51], 'addon_ids' => [30, 31],
             ]],
         ];
         $this->actingAs($merchant)->postJson('/configurations/price-preview', $payload)

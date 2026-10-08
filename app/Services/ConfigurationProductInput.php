@@ -96,9 +96,6 @@ class ConfigurationProductInput
                     ->filter(fn ($mount) => $this->matchesSizeRange($mount['id'], $printType->collection_id, $size, $addonSizeRanges))
                     ->map(fn ($mount) => ['mount' => $mount, 'price' => $this->addonPrice($mount, $size, $addonVariants, $addonSettings)])
                     ->filter(fn ($choice) => $choice['price'] !== null);
-                if ($availableMounts->isEmpty()) {
-                    $availableMounts = collect([['mount' => ['id' => null, 'title' => 'None'], 'price' => 0]]);
-                }
 
                 foreach ($availableMounts as $choice) {
                     $mount = $choice['mount'];
@@ -135,7 +132,7 @@ class ConfigurationProductInput
         }
 
         if ($variants === []) {
-            throw new RuntimeException('No selected size has complete pricing for a Shopify variant.');
+            throw new RuntimeException('No selected size has an eligible advanced add-on with available pricing. Select a priced mount or frame for at least one preset size.');
         }
         if ($enforceLimit && count($variants) > self::MAX_VARIANTS) {
             throw new RuntimeException('This configuration exceeds the 2,000 variant limit.');
