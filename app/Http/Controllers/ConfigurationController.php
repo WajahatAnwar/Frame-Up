@@ -23,24 +23,43 @@ class ConfigurationController extends Controller
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
             'status' => ['nullable', 'in:draft,active'],
+            'print_type' => ['nullable', 'integer'],
+            'sort' => ['nullable', 'in:recent,oldest,product_type'],
         ]);
+        $merchantId = $request->user()->id;
+        $statusCounts = Configuration::query()
+            ->where('user_id', $merchantId)
+            ->selectRaw('status, count(*) as total')
+            ->groupBy('status')
+            ->pluck('total', 'status');
+        $printTypeOptions = DB::table('configuration_print_types')
+            ->join('configurations', 'configurations.id', '=', 'configuration_print_types.configuration_id')
+            ->join('collections', 'collections.id', '=', 'configuration_print_types.collection_id')
+            ->where('configurations.user_id', $merchantId)
+            ->distinct()
+            ->orderBy('collections.title')
+            ->pluck('collections.title', 'collections.id');
         $collectionNames = DB::table('collections')->pluck('title', 'id');
         $configurations = Configuration::query()
-            ->where('user_id', $request->user()->id)
+            ->where('user_id', $merchantId)
             ->when($filters['search'] ?? null, function ($query, $search): void {
                 $query->where(function ($query) use ($search): void {
                     $query->where('shopify_product_type', 'like', '%'.$search.'%');
                 });
             })
             ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
+            ->when($filters['print_type'] ?? null, fn ($query, $id) => $query->whereHas('printTypes', fn ($printTypes) => $printTypes->where('collection_id', $id)))
             ->with('printTypes:id,configuration_id,collection_id')
-            ->latest()
+            ->when(($filters['sort'] ?? 'recent') === 'recent', fn ($query) => $query->orderByDesc('updated_at')->orderByDesc('id'))
+            ->when(($filters['sort'] ?? 'recent') === 'oldest', fn ($query) => $query->orderBy('updated_at')->orderBy('id'))
+            ->when(($filters['sort'] ?? 'recent') === 'product_type', fn ($query) => $query->orderBy('shopify_product_type')->orderByDesc('id'))
             ->paginate(10)
             ->withQueryString()
             ->through(fn (Configuration $configuration): array => [
                 'id' => $configuration->id,
                 'shopify_product_type' => $configuration->shopify_product_type,
                 'status' => $configuration->status,
+                'updated_at' => $configuration->updated_at?->toIso8601String(),
                 'print_type_names' => $configuration->printTypes
                     ->pluck('collection_id')
                     ->map(fn ($id) => $collectionNames->get($id))
@@ -52,7 +71,15 @@ class ConfigurationController extends Controller
             'filters' => [
                 'search' => $filters['search'] ?? '',
                 'status' => $filters['status'] ?? '',
+                'print_type' => (string) ($filters['print_type'] ?? ''),
+                'sort' => $filters['sort'] ?? 'recent',
             ],
+            'statusCounts' => [
+                'all' => (int) $statusCounts->sum(),
+                'active' => (int) ($statusCounts->get('active') ?? 0),
+                'draft' => (int) ($statusCounts->get('draft') ?? 0),
+            ],
+            'printTypeOptions' => $printTypeOptions->map(fn ($title, $id): array => ['id' => (string) $id, 'title' => $title])->values()->all(),
             'indexUrl' => route('configurations.index', absolute: false),
             'createUrl' => route('configurations.create', absolute: false),
             'dashboardUrl' => route('home', absolute: false),

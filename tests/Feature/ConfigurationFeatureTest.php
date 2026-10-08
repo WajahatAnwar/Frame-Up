@@ -67,6 +67,82 @@ class ConfigurationFeatureTest extends TestCase
             ->where('configurations.total', 0));
     }
 
+    public function test_configuration_list_filters_print_types_and_sorts_within_the_merchant(): void
+    {
+        $merchant = User::factory()->create();
+        $other = User::factory()->create();
+        DB::table('collections')->insert([
+            ['id' => 10, 'user_id' => 999, 'title' => 'Canvas'],
+            ['id' => 11, 'user_id' => 999, 'title' => 'Metal'],
+        ]);
+
+        $canvas = Configuration::create(['user_id' => $merchant->id, 'name' => 'Canvas frame', 'shopify_product_type' => 'Frame', 'status' => 'active']);
+        $metal = Configuration::create(['user_id' => $merchant->id, 'name' => 'Metal art', 'shopify_product_type' => 'Art', 'status' => 'draft']);
+        $otherConfiguration = Configuration::create(['user_id' => $other->id, 'name' => 'Other shop', 'shopify_product_type' => 'Poster', 'status' => 'active']);
+        foreach ([[$canvas, 10], [$metal, 11], [$otherConfiguration, 10]] as [$configuration, $collectionId]) {
+            $configuration->printTypes()->create([
+                'collection_id' => $collectionId,
+                'position' => 0,
+                'selected_variant_ids' => [],
+                'selected_addon_ids' => [],
+            ]);
+        }
+
+        $this->actingAs($merchant)->get('/configurations?status=active&print_type=10&search=Frame&sort=product_type')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('Configurations/Index')
+                ->where('configurations.total', 1)
+                ->where('configurations.data.0.id', $canvas->id)
+                ->where('configurations.data.0.print_type_names.0', 'Canvas')
+                ->where('filters.print_type', '10')
+                ->where('filters.sort', 'product_type')
+                ->where('statusCounts.all', 2)
+                ->where('statusCounts.active', 1)
+                ->where('statusCounts.draft', 1)
+                ->has('printTypeOptions', 2));
+
+        $this->actingAs($merchant)->get('/configurations?sort=product_type')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.data.0.id', $metal->id)
+                ->where('configurations.data.1.id', $canvas->id));
+
+        $this->actingAs($merchant)->get('/configurations?print_type=10')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.total', 1)
+                ->where('configurations.data.0.id', $canvas->id));
+
+        $this->actingAs($merchant)->get('/configurations?print_type=11')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.total', 1)
+                ->where('configurations.data.0.id', $metal->id));
+
+        $this->actingAs($merchant)->get('/configurations?status=draft')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.total', 1)
+                ->where('configurations.data.0.id', $metal->id));
+
+        $this->actingAs($merchant)->get('/configurations?search=Frame')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.total', 1)
+                ->where('configurations.data.0.id', $canvas->id));
+
+        $this->actingAs($merchant)->get('/configurations?sort=oldest')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->where('configurations.data.0.id', $canvas->id)
+                ->where('configurations.data.1.id', $metal->id));
+
+        $this->actingAs($merchant)->get('/configurations?print_type=11&status=active')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('configurations.total', 0));
+    }
+
     public function test_merchant_can_create_edit_and_delete_a_configuration_using_catalog_relationships(): void
     {
         $merchant = User::factory()->create();
