@@ -54,8 +54,6 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->get('/')->assertOk()->assertInertia(fn (Assert $page) => $page
             ->component('Dashboard')
             ->where('stats.configurations', 12)
-            ->where('stats.active', 1)
-            ->where('stats.draft', 11)
             ->where('stats.printTypes', 1));
 
         $this->actingAs($merchant)->get('/configurations')->assertOk()->assertInertia(fn (Assert $page) => $page
@@ -97,9 +95,6 @@ class ConfigurationFeatureTest extends TestCase
                 ->where('configurations.data.0.print_type_names.0', 'Canvas')
                 ->where('filters.print_type', '10')
                 ->where('filters.sort', 'product_type')
-                ->where('statusCounts.all', 2)
-                ->where('statusCounts.active', 1)
-                ->where('statusCounts.draft', 1)
                 ->has('printTypeOptions', 2));
 
         $this->actingAs($merchant)->get('/configurations?sort=product_type')
@@ -123,8 +118,7 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->get('/configurations?status=draft')
             ->assertOk()
             ->assertInertia(fn (Assert $page) => $page
-                ->where('configurations.total', 1)
-                ->where('configurations.data.0.id', $metal->id));
+                ->where('configurations.total', 2));
 
         $this->actingAs($merchant)->get('/configurations?search=Frame')
             ->assertOk()
@@ -140,7 +134,7 @@ class ConfigurationFeatureTest extends TestCase
 
         $this->actingAs($merchant)->get('/configurations?print_type=11&status=active')
             ->assertOk()
-            ->assertInertia(fn (Assert $page) => $page->where('configurations.total', 0));
+            ->assertInertia(fn (Assert $page) => $page->where('configurations.total', 1));
     }
 
     public function test_merchant_can_create_edit_and_delete_a_configuration_using_catalog_relationships(): void
@@ -162,6 +156,7 @@ class ConfigurationFeatureTest extends TestCase
         $configuration = Configuration::firstOrFail();
         $this->assertSame($merchant->id, $configuration->user_id);
         $this->assertSame('active', $configuration->status);
+        $this->assertSame('Canvas configuration', $configuration->name);
         $this->assertSame([50], $configuration->printTypes->first()->selected_variant_ids);
         $this->assertSame([30, 31, 32, 33, 34], $configuration->printTypes->first()->selected_addon_ids);
 
@@ -178,15 +173,14 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->get('/configurations')->assertOk()->assertInertia(fn (Assert $page) => $page
             ->where('configurations.data.0.print_type_names.0', 'Canvas'));
 
-        $payload['status'] = 'draft';
-        $payload['print_types'] = [];
+        $payload['name'] = 'Updated canvas configuration';
         $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)
             ->assertRedirect()
-            ->assertSessionHas('success', 'Configuration updated successfully.');
+            ->assertSessionHas('success', 'Configuration updated successfully. Applied to 1 Shopify product.');
         $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('flash.success', 'Configuration updated successfully.'));
-        $this->assertSame('Wall art', $configuration->fresh()->name);
-        $this->assertSame(0, $configuration->printTypes()->count());
+            ->where('flash.success', 'Configuration updated successfully. Applied to 1 Shopify product.'));
+        $this->assertSame('Updated canvas configuration', $configuration->fresh()->name);
+        $this->assertSame(1, $configuration->printTypes()->count());
 
         $this->actingAs($merchant)->delete("/configurations/{$configuration->id}")->assertRedirect();
         $this->assertDatabaseMissing('configurations', ['id' => $configuration->id]);
@@ -244,6 +238,82 @@ class ConfigurationFeatureTest extends TestCase
         $this->actingAs($merchant)->post('/configurations', $payload)
             ->assertSessionHasErrors(['print_types.0.variant_ids', 'print_types.0.addon_ids']);
         $this->assertDatabaseCount('configurations', 0);
+    }
+
+    public function test_exclusive_addon_groups_reject_multiple_options_on_create_update_and_preview(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        DB::table('products')->insert([
+            ['id' => 35, 'title' => 'Alternative wrap thickness', 'addons_check' => 1],
+            ['id' => 36, 'title' => 'Alternative wrap style', 'addons_check' => 1],
+        ]);
+        DB::table('product_settings')->insert([
+            ['id' => 65, 'product_id' => 35, 'addon_options' => 'exclusive', 'exclusive_option' => 'exc-op-0.75-gallery-wrap', 'exclusive_product_type' => 'exclusive-canvas'],
+            ['id' => 66, 'product_id' => 36, 'addon_options' => 'exclusive', 'exclusive_option' => 'exc-op-border-color', 'exclusive_product_type' => 'exclusive-canvas'],
+        ]);
+        DB::table('addon_product')->insert([
+            ['id' => 75, 'product_id' => 20, 'addon_id' => 35, 'status' => 1],
+            ['id' => 76, 'product_id' => 20, 'addon_id' => 36, 'status' => 1],
+        ]);
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Canvas setup', 'shopify_product_type' => 'Wall art', 'status' => 'active',
+        ]);
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldNotReceive('sync');
+
+        foreach ([35, 36] as $additionalAddon) {
+            $payload = $this->validPayload();
+            $payload['print_types'][0]['addon_ids'][] = $additionalAddon;
+            $this->actingAs($merchant)->post('/configurations', [...$payload, 'shopify_product_type' => 'Other art'])
+                ->assertSessionHasErrors('print_types.0.addon_ids');
+            $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)
+                ->assertSessionHasErrors('print_types.0.addon_ids');
+            $this->actingAs($merchant)->postJson(route('configurations.price-preview'), $payload)
+                ->assertUnprocessable()->assertJsonValidationErrors('print_types.0.addon_ids');
+        }
+
+        $this->assertDatabaseCount('configurations', 1);
+        $this->assertSame('Canvas setup', $configuration->fresh()->name);
+        $this->assertSame(0, $configuration->printTypes()->count());
+    }
+
+    public function test_required_print_choices_are_enforced_on_create_and_update(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Canvas setup', 'shopify_product_type' => 'Wall art', 'status' => 'active',
+        ]);
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldNotReceive('sync');
+        foreach ([
+            ['collection_id', null, 'print_types.0.collection_id'],
+            ['product_id', null, 'print_types.0.product_id'],
+            ['variant_ids', [], 'print_types.0.variant_ids'],
+            ['addon_ids', [31, 32], 'print_types.0.addon_ids'],
+        ] as [$field, $value, $error]) {
+            $payload = $this->validPayload();
+            $payload['print_types'][0][$field] = $value;
+            $this->actingAs($merchant)->post('/configurations', [...$payload, 'shopify_product_type' => 'Other art'])->assertSessionHasErrors($error);
+            $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)->assertSessionHasErrors($error);
+        }
+        $payload = [...$this->validPayload(), 'print_types' => []];
+        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)->assertSessionHasErrors('print_types');
+        $this->assertSame('Canvas setup', $configuration->fresh()->name);
+        $this->assertSame(0, $configuration->printTypes()->count());
+    }
+
+    public function test_exclusive_options_default_to_first_and_basic_addons_are_optional(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        $payload = $this->validPayload();
+        $payload['print_types'][0]['addon_ids'] = [33];
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->twice()->andReturn(1);
+        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect()->assertSessionDoesntHaveErrors();
+        $configuration = Configuration::firstOrFail();
+        $this->assertSame([33, 31, 32], $configuration->printTypes()->first()->selected_addon_ids);
+        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)->assertRedirect()->assertSessionDoesntHaveErrors();
+        $this->assertSame([33, 31, 32], $configuration->printTypes()->first()->selected_addon_ids);
     }
 
     public function test_duplicate_selection_ids_are_normalized_before_save(): void
@@ -328,11 +398,8 @@ class ConfigurationFeatureTest extends TestCase
             'shopify_product_type' => 'Frame',
             'status' => 'draft',
         ]);
-        $payload = [
-            'shopify_product_type' => 'Frame',
-            'status' => 'draft',
-            'print_types' => [],
-        ];
+        $this->seedCatalog();
+        $payload = [...$this->validPayload(), 'shopify_product_type' => 'Frame'];
 
         $this->actingAs($merchant)->post('/configurations', ['status' => 'draft', 'print_types' => []])
             ->assertSessionHasErrors('shopify_product_type');
@@ -879,7 +946,7 @@ class ConfigurationFeatureTest extends TestCase
             ->assertSessionHasErrors('shopify')
             ->assertSessionMissing('success');
 
-        $this->assertDatabaseHas('configurations', ['id' => 1, 'name' => 'Wall art', 'shopify_product_id' => null]);
+        $this->assertDatabaseHas('configurations', ['id' => 1, 'name' => 'Canvas configuration', 'shopify_product_id' => null]);
     }
 
     public function test_incomplete_draft_does_not_create_an_unusable_shopify_product(): void
@@ -893,6 +960,24 @@ class ConfigurationFeatureTest extends TestCase
 
         $this->assertSame(0, app(ShopifyConfigurationProductSync::class)->sync($configuration));
         $this->assertNull($configuration->fresh()->shopify_product_id);
+    }
+
+    public function test_configuration_name_is_required_and_saves_ignore_legacy_draft_status(): void
+    {
+        $merchant = User::factory()->create();
+        $this->seedCatalog();
+        $payload = $this->validPayload();
+        $payload['name'] = '';
+        $this->actingAs($merchant)->post('/configurations', $payload)->assertSessionHasErrors('name');
+        $this->assertDatabaseCount('configurations', 0);
+
+        $payload['name'] = 'Custom canvas';
+        $payload['status'] = 'draft';
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->once()->andReturn(1);
+        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect()->assertSessionDoesntHaveErrors();
+        $this->assertDatabaseHas('configurations', ['name' => 'Custom canvas', 'status' => 'active']);
+        $this->actingAs($merchant)->get('/configurations?search=Custom canvas')->assertOk()
+            ->assertInertia(fn (Assert $page) => $page->where('configurations.total', 1)->where('configurations.data.0.name', 'Custom canvas'));
     }
 
     private function seedCatalog(): void
@@ -931,8 +1016,8 @@ class ConfigurationFeatureTest extends TestCase
     private function validPayload(): array
     {
         return [
+            'name' => 'Canvas configuration',
             'shopify_product_type' => 'Wall art',
-            'status' => 'active',
             'print_types' => [[
                 'collection_id' => 10,
                 'product_id' => 20,

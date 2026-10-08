@@ -15,7 +15,7 @@ return new class extends Migration
             $table->string('shopify_image_id')->nullable();
             $table->string('shopify_synced_image_path')->nullable();
             $table->timestamps();
-            $table->unique(['configuration_id', 'shopify_product_id']);
+            $table->unique(['configuration_id', 'shopify_product_id'], 'config_shopify_product_unique');
         });
     }
 

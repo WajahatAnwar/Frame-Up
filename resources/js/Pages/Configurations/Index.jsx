@@ -7,9 +7,8 @@ function formatUpdatedAt(value) {
     return value ? new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' }).format(new Date(value)) : '—';
 }
 
-export default function ConfigurationsIndex({ configurations, filters, statusCounts, printTypeOptions, indexUrl, createUrl }) {
+export default function ConfigurationsIndex({ configurations, filters, printTypeOptions, indexUrl, createUrl }) {
     const [search, setSearch] = useState(filters.search);
-    const [status, setStatus] = useState(filters.status);
     const [printType, setPrintType] = useState(filters.print_type || 'none');
     const [sort, setSort] = useState(filters.sort);
     const searchTimer = useRef(null);
@@ -19,11 +18,10 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
     useEffect(() => {
         const previous = previousFilters.current;
         setSearch((current) => current === previous.search ? filters.search : current);
-        setStatus((current) => current === previous.status ? filters.status : current);
         setPrintType((current) => current === (previous.print_type || 'none') ? (filters.print_type || 'none') : current);
         setSort((current) => current === previous.sort ? filters.sort : current);
         previousFilters.current = filters;
-    }, [filters.search, filters.status, filters.print_type, filters.sort]);
+    }, [filters.search, filters.print_type, filters.sort]);
     useEffect(() => {
         if (skipSearchDebounce.current) {
             skipSearchDebounce.current = false;
@@ -33,11 +31,11 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
 
         searchTimer.current = window.setTimeout(() => applyFilters({ search: search.trim() }), 400);
         return () => window.clearTimeout(searchTimer.current);
-    }, [search, filters.search, filters.status, filters.print_type, filters.sort]);
+    }, [search, filters.search, filters.print_type, filters.sort]);
 
     function applyFilters(changes = {}) {
         window.clearTimeout(searchTimer.current);
-        const next = { search: search.trim(), status, print_type: printType, sort, ...changes };
+        const next = { search: search.trim(), print_type: printType, sort, ...changes };
         if (next.print_type === 'none') next.print_type = '';
         router.get(withEmbeddedContext(indexUrl), Object.fromEntries(Object.entries(next).filter(([, value]) => value !== '' && value !== 'recent')), {
             preserveState: true,
@@ -49,13 +47,12 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
     function clearFilters() {
         skipSearchDebounce.current = true;
         setSearch('');
-        setStatus('');
         setPrintType('none');
         setSort('recent');
-        applyFilters({ search: '', status: '', print_type: '', sort: 'recent' });
+        applyFilters({ search: '', print_type: '', sort: 'recent' });
     }
 
-    const hasFilters = Boolean(search || status || printType !== 'none' || sort !== 'recent');
+    const hasFilters = Boolean(search || printType !== 'none' || sort !== 'recent');
 
     return (
         <>
@@ -72,21 +69,12 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
                         <s-box padding="base">
                             <s-stack direction="block" gap="base">
                                 <s-stack direction="inline" gap="tight" alignItems="center">
-                                    {[
-                                        ['', 'All', statusCounts.all],
-                                        ['active', 'Active', statusCounts.active],
-                                        ['draft', 'Draft', statusCounts.draft],
-                                    ].map(([value, label, count]) => (
-                                        <s-button key={label} variant={status === value ? 'primary' : 'tertiary'} onClick={() => { setStatus(value); applyFilters({ status: value }); }}>
-                                            {label} ({count})
-                                        </s-button>
-                                    ))}
                                     {hasFilters && <s-button variant="tertiary" onClick={clearFilters}>Clear filters</s-button>}
                                 </s-stack>
                                 <s-grid gridTemplateColumns="repeat(auto-fit, minmax(190px, 1fr))" gap="base">
                                     <s-text-field
-                                        label="Shopify product type"
-                                        placeholder="Search product types"
+                                        label="Search configurations"
+                                        placeholder="Search names or product types"
                                         value={search}
                                         onInput={(event) => setSearch(event.currentTarget.value)}
                                         onChange={(event) => setSearch(event.currentTarget.value)}
@@ -115,9 +103,8 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
                         ) : (
                             <s-table>
                                 <s-table-header-row>
-                                    <s-table-header listSlot="primary">Shopify product type</s-table-header>
+                                    <s-table-header listSlot="primary">Configuration</s-table-header>
                                     <s-table-header listSlot="labeled">Print types</s-table-header>
-                                    <s-table-header listSlot="inline">Status</s-table-header>
                                     <s-table-header listSlot="inline">Updated</s-table-header>
                                     <s-table-header listSlot="inline">Action</s-table-header>
                                 </s-table-header-row>
@@ -126,8 +113,8 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
                                         <s-table-row key={configuration.id}>
                                             <s-table-cell>
                                                 <s-stack direction="block" gap="tight">
-                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.shopify_product_type}</s-link>
-                                                    <s-text tone="subdued">Configuration #{configuration.id}</s-text>
+                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.name}</s-link>
+                                                    <s-text tone="subdued">{configuration.shopify_product_type}</s-text>
                                                 </s-stack>
                                             </s-table-cell>
                                             <s-table-cell>
@@ -136,7 +123,6 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
                                                     {configuration.print_type_names.length > 3 && <s-text tone="subdued">+{configuration.print_type_names.length - 3} more</s-text>}
                                                 </s-stack>
                                             </s-table-cell>
-                                            <s-table-cell><s-badge tone={configuration.status === 'active' ? 'success' : 'info'}>{configuration.status === 'active' ? 'Active' : 'Draft'}</s-badge></s-table-cell>
                                             <s-table-cell><s-text tone="subdued">{formatUpdatedAt(configuration.updated_at)}</s-text></s-table-cell>
                                             <s-table-cell><s-link href={withEmbeddedContext(`/configurations/${configuration.id}/edit`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}/edit`)}>Edit</s-link></s-table-cell>
                                         </s-table-row>

@@ -20,16 +20,10 @@ class ConfigurationController extends Controller
     {
         $filters = $request->validate([
             'search' => ['nullable', 'string', 'max:255'],
-            'status' => ['nullable', 'in:draft,active'],
             'print_type' => ['nullable', 'integer'],
             'sort' => ['nullable', 'in:recent,oldest,product_type'],
         ]);
         $merchantId = $request->user()->id;
-        $statusCounts = Configuration::query()
-            ->where('user_id', $merchantId)
-            ->selectRaw('status, count(*) as total')
-            ->groupBy('status')
-            ->pluck('total', 'status');
         $printTypeOptions = DB::table('configuration_print_types')
             ->join('configurations', 'configurations.id', '=', 'configuration_print_types.configuration_id')
             ->join('collections', 'collections.id', '=', 'configuration_print_types.collection_id')
@@ -42,10 +36,10 @@ class ConfigurationController extends Controller
             ->where('user_id', $merchantId)
             ->when($filters['search'] ?? null, function ($query, $search): void {
                 $query->where(function ($query) use ($search): void {
-                    $query->where('shopify_product_type', 'like', '%'.$search.'%');
+                    $query->where('name', 'like', '%'.$search.'%')
+                        ->orWhere('shopify_product_type', 'like', '%'.$search.'%');
                 });
             })
-            ->when($filters['status'] ?? null, fn ($query, $status) => $query->where('status', $status))
             ->when($filters['print_type'] ?? null, fn ($query, $id) => $query->whereHas('printTypes', fn ($printTypes) => $printTypes->where('collection_id', $id)))
             ->with('printTypes:id,configuration_id,collection_id')
             ->when(($filters['sort'] ?? 'recent') === 'recent', fn ($query) => $query->orderByDesc('updated_at')->orderByDesc('id'))
@@ -56,7 +50,7 @@ class ConfigurationController extends Controller
             ->through(fn (Configuration $configuration): array => [
                 'id' => $configuration->id,
                 'shopify_product_type' => $configuration->shopify_product_type,
-                'status' => $configuration->status,
+                'name' => $configuration->name,
                 'updated_at' => $configuration->updated_at?->toIso8601String(),
                 'print_type_names' => $configuration->printTypes
                     ->pluck('collection_id')
@@ -68,14 +62,8 @@ class ConfigurationController extends Controller
             'configurations' => $configurations,
             'filters' => [
                 'search' => $filters['search'] ?? '',
-                'status' => $filters['status'] ?? '',
                 'print_type' => (string) ($filters['print_type'] ?? ''),
                 'sort' => $filters['sort'] ?? 'recent',
-            ],
-            'statusCounts' => [
-                'all' => (int) $statusCounts->sum(),
-                'active' => (int) ($statusCounts->get('active') ?? 0),
-                'draft' => (int) ($statusCounts->get('draft') ?? 0),
             ],
             'printTypeOptions' => $printTypeOptions->map(fn ($title, $id): array => ['id' => (string) $id, 'title' => $title])->values()->all(),
             'indexUrl' => route('configurations.index', absolute: false),
@@ -96,8 +84,6 @@ class ConfigurationController extends Controller
             'dashboardUrl' => route('home', absolute: false),
             'catalogUrl' => route('catalog.page', absolute: false),
             'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
-            'settingsUrl' => route('settings.edit', absolute: false),
-            'priceMultiplier' => $request->user()->price_multiplier,
             'productTypesUrl' => route('shopify.product-types', absolute: false),
         ]);
     }
@@ -106,8 +92,7 @@ class ConfigurationController extends Controller
     {
         $configuration = DB::transaction(function () use ($request): Configuration {
             $configuration = Configuration::create([
-                ...$request->safe()->only(['shopify_product_type', 'status']),
-                'name' => $request->validated('shopify_product_type'),
+                ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
                 'user_id' => $request->user()->id,
             ]);
             $this->savePrintTypes($configuration, $request->validated('print_types'));
@@ -137,8 +122,7 @@ class ConfigurationController extends Controller
         $this->assertOwner($request, $configuration);
         DB::transaction(function () use ($configuration, $request): void {
             $configuration->update([
-                ...$request->safe()->only(['shopify_product_type', 'status']),
-                'name' => $request->validated('shopify_product_type'),
+                ...$request->safe()->only(['name', 'shopify_product_type', 'status']),
             ]);
             $configuration->printTypes()->delete();
             $this->savePrintTypes($configuration, $request->validated('print_types'));
@@ -170,8 +154,6 @@ class ConfigurationController extends Controller
             'dashboardUrl' => route('home', absolute: false),
             'catalogUrl' => route('catalog.page', absolute: false),
             'pricingPreviewUrl' => route('configurations.price-preview', absolute: false),
-            'settingsUrl' => route('settings.edit', absolute: false),
-            'priceMultiplier' => $request->user()->price_multiplier,
             'productTypesUrl' => route('shopify.product-types', absolute: false),
         ]);
     }

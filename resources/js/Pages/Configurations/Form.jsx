@@ -13,13 +13,29 @@ function emptyPrintType() {
     };
 }
 
-function initialPrintTypes(configuration) {
+function defaultExclusiveAddons(surface, selectedIds = []) {
+    const ids = [...selectedIds];
+    const groups = new Map();
+    for (const addon of surface?.addons ?? []) {
+        if (addon.category !== 'exclusive') continue;
+        groups.set(addon.group, [...(groups.get(addon.group) ?? []), addon.id]);
+    }
+    for (const groupIds of groups.values()) {
+        if (!groupIds.some((id) => ids.includes(id))) ids.push(groupIds[0]);
+    }
+    return ids;
+}
+
+function initialPrintTypes(configuration, catalog) {
     return (configuration?.print_types ?? []).map((printType) => ({
         key: printType.id,
         collection_id: printType.collection_id ?? '',
         product_id: printType.product_id ?? '',
         variant_ids: [...new Set((printType.selected_variant_ids ?? []).map(Number))],
-        addon_ids: [...new Set((printType.selected_addon_ids ?? []).map(Number))],
+        addon_ids: defaultExclusiveAddons(
+            catalog.find((collection) => collection.id === Number(printType.collection_id))?.surfaces.find((surface) => surface.id === Number(printType.product_id)),
+            [...new Set((printType.selected_addon_ids ?? []).map(Number))],
+        ),
     }));
 }
 
@@ -48,13 +64,13 @@ function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
     );
 }
 
-export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, settingsUrl, priceMultiplier, productTypesUrl }) {
+export default function ConfigurationForm({ mode, configuration, catalog, submitUrl, editUrl, deleteUrl, indexUrl, pricingPreviewUrl, productTypesUrl }) {
     const readOnly = mode === 'show';
     const { flash } = usePage().props;
     const { data, setData, post, transform, processing, errors } = useForm({
         shopify_product_type: configuration?.shopify_product_type ?? '',
-        status: configuration?.status ?? 'draft',
-        print_types: initialPrintTypes(configuration),
+        name: configuration?.name ?? '',
+        print_types: initialPrintTypes(configuration, catalog),
     });
     const [priceSummaries, setPriceSummaries] = useState([]);
     const [priceError, setPriceError] = useState('');
@@ -118,7 +134,6 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     },
                     body: JSON.stringify({
                         shopify_product_type: data.shopify_product_type || 'Price preview',
-                        status: 'draft',
                         print_types: selections,
                     }),
                 });
@@ -151,6 +166,8 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     }
 
     function save() {
+        if (processing) return;
+
         const url = withEmbeddedContext(submitUrl);
         transform((values) => mode === 'create' ? values : { ...values, _method: 'put' });
         post(url, {
@@ -164,18 +181,17 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
         router.delete(withEmbeddedContext(deleteUrl));
     }
 
-    const heading = mode === 'create' ? 'Create configuration' : mode === 'edit' ? 'Edit configuration' : configuration.shopify_product_type;
+    const heading = mode === 'create' ? 'Create configuration' : mode === 'edit' ? 'Edit configuration' : configuration.name;
 
     return (
         <>
             <Head title={heading} />
             <s-page heading={heading} inlineSize="base">
                 <s-link slot="breadcrumb-actions" href={withEmbeddedContext(indexUrl)} onClick={(event) => visitEmbedded(event, indexUrl)}>Configurations</s-link>
-                {mode === 'show' && <s-badge slot="accessory" tone={data.status === 'active' ? 'success' : 'info'}>{data.status}</s-badge>}
                 {readOnly ? (
                     <s-button slot="primary-action" variant="primary" href={withEmbeddedContext(editUrl)} onClick={(event) => visitEmbedded(event, editUrl)}>Edit configuration</s-button>
                 ) : (
-                    <s-button slot="primary-action" variant="primary" loading={processing} disabled={processing} onClick={save}>
+                    <s-button slot="primary-action" variant="primary" loading={processing} disabled={processing} commandFor="save-configuration-modal" command="--show">
                         Save configuration
                     </s-button>
                 )}
@@ -201,6 +217,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
 
                 <s-section heading="1. Product basic details">
                     <s-stack direction="block" gap="base">
+                        <s-text-field label="Configuration name" value={data.name} disabled={readOnly} error={errors.name} onInput={(event) => setData('name', event.currentTarget.value)} onChange={(event) => setData('name', event.currentTarget.value)} />
                         <s-select
                             label="Target Shopify product type"
                             value={data.shopify_product_type}
@@ -212,11 +229,6 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                             {productTypes.map((type) => <s-option key={type} value={type}>{type}</s-option>)}
                         </s-select>
                         <s-paragraph>The configuration will update products in the selected Shopify product type.</s-paragraph>
-                        <s-select label="Status" value={data.status} disabled={readOnly} onChange={(event) => setData('status', event.currentTarget.value)}>
-                            <s-option value="draft">Draft</s-option>
-                            <s-option value="active">Active</s-option>
-                        </s-select>
-                        <s-paragraph>Active configurations update matching Shopify products when saved. Drafts leave Shopify products as they are.</s-paragraph>
                     </s-stack>
                 </s-section>
 
@@ -287,10 +299,14 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                                         value={String(printType.product_id)}
                                                         disabled={readOnly || !collection}
                                                         error={errors[`print_types.${index}.product_id`]}
-                                                        onChange={(event) => updatePrintType(index, {
-                                                            product_id: event.currentTarget.value ? Number(event.currentTarget.value) : '',
-                                                            variant_ids: [], addon_ids: [],
-                                                        })}
+                                                        onChange={(event) => {
+                                                            const productId = Number(event.currentTarget.value) || '';
+                                                            updatePrintType(index, {
+                                                                product_id: productId,
+                                                                variant_ids: [],
+                                                                addon_ids: defaultExclusiveAddons(collection?.surfaces.find((surface) => surface.id === productId)),
+                                                            });
+                                                        }}
                                                     >
                                                         <s-option value="">Choose a surface</s-option>
                                                         {collection?.surfaces.map((item) => {
@@ -308,8 +324,11 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                                 </s-stack>
                                             </s-stack>
 
-                                            <s-stack direction="block" gap="base">
-                                                <s-heading>2. Preset sizes</s-heading>
+                                            <s-stack direction="block" gap="tight">
+                                                <s-stack direction="block" gap="none">
+                                                    <s-heading>2. Preset sizes</s-heading>
+                                                    <s-text tone="subdued">Select at least one preset size.</s-text>
+                                                </s-stack>
                                                 {surface ? (
                                                     <s-stack direction="block" gap="tight">
                                                         {surface.variants.length === 0 && <s-paragraph>No predefined sizes are available for this surface.</s-paragraph>}
@@ -330,17 +349,45 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                                 ) : <s-paragraph>Choose a surface to see its preset sizes.</s-paragraph>}
                                             </s-stack>
 
-                                            <s-stack direction="block" gap="base">
-                                                <s-heading>3. Customer add-ons</s-heading>
+                                            <s-stack direction="block" gap="tight">
+                                                <s-stack direction="block" gap="none">
+                                                    <s-heading>3. Customer add-ons</s-heading>
+                                                    {advance.length > 0 && <s-text tone="subdued">Select at least one advanced add-on to offer customers.</s-text>}
+                                                </s-stack>
                                                 {surface ? (
                                                     <s-stack direction="block" gap="base">
                                                         {surface.addons.length === 0 && <s-paragraph>No add-ons are available for this surface.</s-paragraph>}
-                                                        <AddonChoices label="Basic · customers may choose multiple" addons={basic} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
                                                         <AddonChoices label="Advance · customers choose one" addons={advance} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
                                                         <AddonChoices label="Other related add-ons" addons={other} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                                        {Object.entries(exclusive).map(([group, addons]) => (
-                                                            <AddonChoices key={group} label={`${group} · offer at least one option`} addons={addons} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                                        ))}
+                                                        {Object.entries(exclusive).map(([group, addons]) => {
+                                                            const groupIds = addons.map((addon) => addon.id);
+                                                            const selected = printType.addon_ids.filter((id) => groupIds.includes(id));
+
+                                                            return (
+                                                                <s-choice-list
+                                                                    key={group}
+                                                                    name={`exclusive-${printType.key}-${group}`}
+                                                                    label={`${group} · choose one option`}
+                                                                    values={selected.length === 1 ? selected.map(String) : []}
+                                                                    multiple={false}
+                                                                    disabled={readOnly}
+                                                                    error={errors[`print_types.${index}.addon_ids`]}
+                                                                    onChange={(event) => {
+                                                                        const value = event.currentTarget.values[0];
+                                                                        if (!value || !groupIds.includes(Number(value))) return;
+                                                                        updatePrintType(index, {
+                                                                            addon_ids: [
+                                                                                ...printType.addon_ids.filter((id) => !groupIds.includes(id)),
+                                                                                Number(value),
+                                                                            ],
+                                                                        });
+                                                                    }}
+                                                                >
+                                                                    {addons.map((addon) => <s-choice key={addon.id} value={String(addon.id)}>{addon.title}</s-choice>)}
+                                                                </s-choice-list>
+                                                            );
+                                                        })}
+                                                        <AddonChoices label="Basic · customers choose one" addons={basic} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
                                                     </s-stack>
                                                 ) : <s-paragraph>Choose a surface to see its add-ons.</s-paragraph>}
                                             </s-stack>
@@ -352,7 +399,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                                             <s-heading>{priceSummary.min_price === priceSummary.max_price
                                                                 ? priceSummary.min_price
                                                                 : `${priceSummary.min_price} – ${priceSummary.max_price}`}</s-heading>
-                                                            <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including add-ons and the {priceMultiplier}x store multiplier.</s-paragraph>
+                                                            <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including applicable add-ons and store pricing.</s-paragraph>
                                                         </s-stack>
                                                     ) : <s-paragraph>{priceError || 'Select a priced size to see the total.'}</s-paragraph>}
                                                 </s-stack>
@@ -373,19 +420,21 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     </s-stack>
                 </s-section>
 
-                <s-section heading="3. Pricing">
-                    <s-link slot="secondary-actions" href={withEmbeddedContext(settingsUrl)} onClick={(event) => visitEmbedded(event, settingsUrl)}>Edit in Settings</s-link>
-                    <s-stack direction="block" gap="tight">
-                        <s-paragraph>Store price multiplier: <s-badge>{priceMultiplier}x</s-badge></s-paragraph>
-                        <s-paragraph>Each Shopify variant uses its surface, size, and applicable add-on total multiplied by this value.</s-paragraph>
-                    </s-stack>
-                </s-section>
+                {!readOnly && <s-button variant="primary" loading={processing} disabled={processing} commandFor="save-configuration-modal" command="--show">Save configuration</s-button>}
 
-                {!readOnly && <s-button variant="primary" loading={processing} disabled={processing} onClick={save}>Save configuration</s-button>}
+                {!readOnly && (
+                    <s-modal id="save-configuration-modal" heading="Save configuration and overwrite products?">
+                        {data.shopify_product_type ? (
+                            <s-paragraph>This will overwrite the variants and pricing of all Shopify products belonging to product type “{data.shopify_product_type}”. This cannot be undone. Would you like to continue?</s-paragraph>
+                        ) : <s-paragraph>Choose a target Shopify product type before continuing.</s-paragraph>}
+                        <s-button slot="primary-action" variant="primary" tone="critical" loading={processing} disabled={processing || !data.shopify_product_type} commandFor="save-configuration-modal" command="--hide" onClick={save}>Continue and save</s-button>
+                        <s-button slot="secondary-actions" disabled={processing} commandFor="save-configuration-modal" command="--hide">Cancel</s-button>
+                    </s-modal>
+                )}
 
                 {configuration && (
                     <s-modal id="delete-configuration-modal" heading="Delete configuration?">
-                        <s-paragraph>Delete the “{configuration.shopify_product_type}” configuration and its print type selections? This action cannot be undone.</s-paragraph>
+                        <s-paragraph>Delete the “{configuration.name}” configuration and its print type selections? This action cannot be undone.</s-paragraph>
                         <s-button slot="primary-action" variant="primary" tone="critical" disabled={processing} onClick={remove}>Delete configuration</s-button>
                         <s-button slot="secondary-actions" commandFor="delete-configuration-modal" command="--hide">Cancel</s-button>
                     </s-modal>

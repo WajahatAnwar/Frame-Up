@@ -15,8 +15,6 @@ export default function Dashboard({ stats, recentConfigurations, indexUrl, creat
                     <s-grid gridTemplateColumns="repeat(auto-fit, minmax(160px, 1fr))" gap="base">
                         {[
                             ['Total', stats.configurations],
-                            ['Active', stats.active],
-                            ['Draft', stats.draft],
                         ].map(([label, value]) => (
                             <s-box key={label} padding="base" background="base" borderWidth="base" borderColor="base" borderRadius="base">
                                 <s-stack direction="block" gap="tight">
@@ -50,17 +48,17 @@ export default function Dashboard({ stats, recentConfigurations, indexUrl, creat
                             <s-table>
                                 <s-table-header-row>
                                     <s-table-header>Configuration</s-table-header>
-                                    <s-table-header>Status</s-table-header>
+                                    <s-table-header>Shopify product type</s-table-header>
                                 </s-table-header-row>
                                 <s-table-body>
                                     {recentConfigurations.map((configuration) => (
                                         <s-table-row key={configuration.id}>
                                             <s-table-cell>
                                                 <s-stack direction="block" gap="tight">
-                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.shopify_product_type}</s-link>
+                                                    <s-link href={withEmbeddedContext(`/configurations/${configuration.id}`)} onClick={(event) => visitEmbedded(event, `/configurations/${configuration.id}`)}>{configuration.name}</s-link>
                                                 </s-stack>
                                             </s-table-cell>
-                                            <s-table-cell><s-badge tone={configuration.status === 'active' ? 'success' : 'info'}>{configuration.status === 'active' ? 'Active' : 'Draft'}</s-badge></s-table-cell>
+                                            <s-table-cell><s-text>{configuration.shopify_product_type}</s-text></s-table-cell>
                                         </s-table-row>
                                     ))}
                                 </s-table-body>

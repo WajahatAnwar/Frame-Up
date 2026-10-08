@@ -15,16 +15,28 @@ class SaveConfigurationRequest extends FormRequest
 {
     protected function prepareForValidation(): void
     {
-        $printTypes = collect($this->input('print_types', []))->map(function (array $printType): array {
+        $collections = collect(app(CatalogConfigurationOptions::class)->all())->keyBy('id');
+        $printTypes = collect($this->input('print_types', []))->map(function (array $printType) use ($collections): array {
             $printType['variant_ids'] = collect($printType['variant_ids'] ?? [])
                 ->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
             $printType['addon_ids'] = collect($printType['addon_ids'] ?? [])
                 ->map(fn ($id) => (int) $id)->filter()->unique()->values()->all();
+            $collection = $collections->get($printType['collection_id'] ?? null);
+            $surface = $collection ? collect($collection['surfaces'])->firstWhere('id', $printType['product_id'] ?? null) : null;
+            $exclusiveGroups = collect($surface['addons'] ?? [])->where('category', 'exclusive')->groupBy('group');
+            foreach ($exclusiveGroups as $addons) {
+                if (array_intersect($printType['addon_ids'], $addons->pluck('id')->all()) === []) {
+                    $printType['addon_ids'][] = $addons->first()['id'];
+                }
+            }
 
             return $printType;
         })->values()->all();
 
-        $this->merge(['print_types' => $printTypes]);
+        $this->merge([
+            'print_types' => $printTypes,
+            'status' => $this->routeIs('configurations.price-preview') ? 'draft' : 'active',
+        ]);
     }
 
     public function authorize(): bool
@@ -39,6 +51,7 @@ class SaveConfigurationRequest extends FormRequest
     public function rules(): array
     {
         return [
+            'name' => [$this->routeIs('configurations.price-preview') ? 'nullable' : 'required', 'string', 'max:255'],
             'shopify_product_type' => [
                 'required', 'string', 'max:255',
                 ...($this->routeIs('configurations.price-preview') ? [] : [
@@ -70,7 +83,7 @@ class SaveConfigurationRequest extends FormRequest
             $printTypes = $this->input('print_types', []);
             $active = $this->input('status') === 'active';
             if ($active && $printTypes === []) {
-                $validator->errors()->add('print_types', 'Add a print type before activating this configuration.');
+                $validator->errors()->add('print_types', 'Add at least one print type.');
             }
 
             $collections = collect(app(CatalogConfigurationOptions::class)->all())->keyBy('id');
@@ -120,16 +133,18 @@ class SaveConfigurationRequest extends FormRequest
                     ->where('category', 'advance')
                     ->whereIn('id', $addonIds)
                     ->count();
+                if ($active && collect($surface['addons'])->contains('category', 'advance') && $selectedMountCount === 0) {
+                    $validator->errors()->add("print_types.{$index}.addon_ids", 'Select at least one advanced add-on.');
+                }
                 $maximumPossibleVariants += count($variantIds) * max(1, $selectedMountCount);
 
-                if ($active) {
-                    $exclusiveGroups = collect($surface['addons'])
-                        ->where('category', 'exclusive')
-                        ->groupBy('group');
-                    foreach ($exclusiveGroups as $group => $addons) {
-                        if (array_intersect($addonIds, $addons->pluck('id')->all()) === []) {
-                            $validator->errors()->add("print_types.{$index}.addon_ids", "Select at least one {$group} option.");
-                        }
+                $exclusiveGroups = collect($surface['addons'])
+                    ->where('category', 'exclusive')
+                    ->groupBy('group');
+                foreach ($exclusiveGroups as $group => $addons) {
+                    $selectedCount = count(array_intersect($addonIds, $addons->pluck('id')->all()));
+                    if ($selectedCount > 1 || ($active && $selectedCount === 0)) {
+                        $validator->errors()->add("print_types.{$index}.addon_ids", "Select exactly one {$group} option.");
                     }
                 }
             }
