@@ -192,45 +192,45 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertDatabaseMissing('configurations', ['id' => $configuration->id]);
     }
 
-    public function test_configuration_image_can_be_uploaded_and_replaced(): void
+    public function test_configuration_image_uploads_are_no_longer_accepted(): void
     {
         Storage::fake('public');
         $merchant = User::factory()->create();
         $this->seedCatalog();
-        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->twice()->andReturn(1);
-
+        $this->mock(ShopifyConfigurationProductSync::class)->shouldReceive('sync')->never();
         $payload = $this->validPayload();
-        $payload['image'] = UploadedFile::fake()->image('first.jpg');
-        $this->actingAs($merchant)->post('/configurations', $payload)->assertRedirect();
-
-        $configuration = Configuration::firstOrFail();
-        $firstPath = $configuration->image_path;
-        $this->assertNotNull($firstPath);
-        Storage::disk('public')->assertExists($firstPath);
-        $this->actingAs($merchant)->get("/configurations/{$configuration->id}")->assertOk()->assertInertia(fn (Assert $page) => $page
-            ->where('configuration.image_path', $firstPath)
-            ->where('configuration.image_url', Storage::disk('public')->url($firstPath)));
-
-        $payload['image'] = UploadedFile::fake()->image('replacement.png');
-        $payload['_method'] = 'put';
-        $this->actingAs($merchant)->post("/configurations/{$configuration->id}", $payload)->assertRedirect();
-
-        $newPath = $configuration->fresh()->image_path;
-        $this->assertNotSame($firstPath, $newPath);
-        Storage::disk('public')->assertMissing($firstPath);
-        Storage::disk('public')->assertExists($newPath);
-    }
-
-    public function test_configuration_rejects_non_image_uploads(): void
-    {
-        Storage::fake('public');
-        $merchant = User::factory()->create();
-        $this->seedCatalog();
-        $payload = $this->validPayload();
-        $payload['image'] = UploadedFile::fake()->create('document.pdf', 10, 'application/pdf');
+        $payload['image'] = UploadedFile::fake()->image('image.jpg');
 
         $this->actingAs($merchant)->post('/configurations', $payload)->assertSessionHasErrors('image');
         $this->assertDatabaseCount('configurations', 0);
+
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Wall art', 'shopify_product_type' => 'Wall art', 'status' => 'draft',
+        ]);
+        $this->actingAs($merchant)->put("/configurations/{$configuration->id}", $payload)->assertSessionHasErrors('image');
+        $this->assertSame('draft', $configuration->fresh()->status);
+        $this->assertSame([], Storage::disk('public')->allFiles());
+    }
+
+    public function test_configuration_details_do_not_expose_legacy_images(): void
+    {
+        $merchant = User::factory()->create();
+        $configuration = Configuration::create([
+            'user_id' => $merchant->id, 'name' => 'Wall art', 'shopify_product_type' => 'Wall art', 'status' => 'draft',
+        ]);
+        $configuration->forceFill([
+            'image_path' => 'configuration-images/legacy.jpg',
+            'shopify_image_id' => 'gid://shopify/MediaImage/10',
+            'shopify_synced_image_path' => 'configuration-images/legacy.jpg',
+        ])->save();
+
+        foreach (["/configurations/{$configuration->id}", "/configurations/{$configuration->id}/edit"] as $url) {
+            $this->actingAs($merchant)->get($url)->assertOk()->assertInertia(fn (Assert $page) => $page
+                ->missing('configuration.image_path')
+                ->missing('configuration.image_url')
+                ->missing('configuration.shopify_image_id')
+                ->missing('configuration.shopify_synced_image_path'));
+        }
     }
 
     public function test_active_configuration_rejects_unrelated_variants_and_missing_exclusive_options(): void
@@ -544,13 +544,10 @@ class ConfigurationFeatureTest extends TestCase
 
     public function test_saving_a_complete_configuration_upserts_and_links_the_shopify_product(): void
     {
-        Storage::fake('public', ['url' => 'https://frame-up.example.test/storage']);
-        Storage::disk('public')->put('configuration-images/test.jpg', 'image');
         $merchant = User::factory()->create();
         $this->seedCatalog();
         $configuration = Configuration::create([
             'user_id' => $merchant->id, 'name' => 'Canvas setup', 'shopify_product_type' => 'Wall art', 'status' => 'active',
-            'image_path' => 'configuration-images/test.jpg',
         ]);
         $configuration->printTypes()->create([
             'collection_id' => 10, 'product_id' => 20, 'position' => 0,
@@ -600,10 +597,7 @@ class ConfigurationFeatureTest extends TestCase
                 && array_column($variables['input']['productOptions'], 'name') === ['Print Type', 'Sizes', 'Mounts and Frames']
                 && $variables['input']['variants'][0]['price'] === '10.00'
                 && ! isset($variables['input']['title'], $variables['input']['handle'], $variables['input']['status'], $variables['input']['productType'])
-                && $variables['input']['files'] === [[
-                    'originalSource' => 'https://frame-up.example.test/storage/configuration-images/test.jpg',
-                    'contentType' => 'IMAGE', 'alt' => 'Existing canvas',
-                ]])
+                && ! array_key_exists('files', $variables['input']))
             ->andReturn(['productSet' => ['product' => [
                 'id' => 'gid://shopify/Product/123',
                 'media' => ['nodes' => [['id' => 'gid://shopify/MediaImage/10']]],
@@ -650,10 +644,7 @@ class ConfigurationFeatureTest extends TestCase
                 && ! array_key_exists('id', $variables['input']['variants'][1])
                 && $variables['input']['variants'][1]['optionValues'][1]['name'] === '5x7'
                 && $variables['input']['variants'][1]['sku'] === 'frameup-test'
-                && $variables['input']['files'] === [
-                    ['id' => 'gid://shopify/MediaImage/10'],
-                    ['id' => 'gid://shopify/MediaImage/11'],
-                ])
+                && ! array_key_exists('files', $variables['input']))
             ->andReturn(['productSet' => ['product' => [
                 'id' => 'gid://shopify/Product/123',
                 'media' => ['nodes' => [['id' => 'gid://shopify/MediaImage/10']]],
@@ -666,8 +657,6 @@ class ConfigurationFeatureTest extends TestCase
         $this->assertDatabaseHas('configuration_shopify_products', [
             'configuration_id' => $configuration->id,
             'shopify_product_id' => 'gid://shopify/Product/123',
-            'shopify_image_id' => 'gid://shopify/MediaImage/10',
-            'shopify_synced_image_path' => 'configuration-images/test.jpg',
         ]);
         $this->assertSame(1, app(ShopifyConfigurationProductSync::class)->sync($configuration->fresh()));
     }
@@ -807,10 +796,8 @@ class ConfigurationFeatureTest extends TestCase
         $gateway->query($shop, 'query Test { shop { id } }', []);
     }
 
-    public function test_replacing_configuration_image_replaces_only_its_shopify_media(): void
+    public function test_legacy_configuration_images_are_not_sent_or_reordered_on_shopify(): void
     {
-        Storage::fake('public', ['url' => 'https://frame-up.example.test/storage']);
-        Storage::disk('public')->put('configuration-images/new.jpg', 'image');
         $merchant = User::factory()->create();
         $this->seedCatalog();
         $configuration = Configuration::create([
@@ -818,13 +805,13 @@ class ConfigurationFeatureTest extends TestCase
             'name' => 'Canvas setup',
             'shopify_product_type' => 'Wall art',
             'status' => 'active',
-            'image_path' => 'configuration-images/new.jpg',
         ]);
-        $configuration->shopifyProducts()->create([
-            'shopify_product_id' => 'gid://shopify/Product/123',
+        $configuration->forceFill(['image_path' => 'configuration-images/new.jpg'])->save();
+        $target = $configuration->shopifyProducts()->create(['shopify_product_id' => 'gid://shopify/Product/123']);
+        $target->forceFill([
             'shopify_image_id' => 'gid://shopify/MediaImage/old',
             'shopify_synced_image_path' => 'configuration-images/old.jpg',
-        ]);
+        ])->save();
         $this->mock(ShopifyProductCatalog::class)
             ->shouldReceive('productsOfType')->twice()
             ->andReturnUsing(fn () => (function () {
@@ -860,41 +847,24 @@ class ConfigurationFeatureTest extends TestCase
                 'pageInfo' => ['hasNextPage' => false],
             ],
         ];
-        $productAfter = $product;
-        $productAfter['media']['nodes'][0]['id'] = 'gid://shopify/MediaImage/new';
         $gateway = $this->mock(ShopifyGraphqlGateway::class);
         $gateway->shouldReceive('query')->twice()
-            ->withArgs(fn ($shop, $query) => $shop->is($merchant) && str_contains($query, 'query ConfigurationProduct('))
-            ->andReturn(['product' => $product], ['product' => $productAfter]);
-        $gateway->shouldReceive('query')->once()
-            ->withArgs(fn ($shop, $query, $variables) => str_contains($query, 'productSet') && $variables['input']['files'] === [
-                ['originalSource' => 'https://frame-up.example.test/storage/configuration-images/new.jpg', 'contentType' => 'IMAGE', 'alt' => 'Existing canvas'],
-                ['id' => 'gid://shopify/MediaImage/other'],
-            ])
-            ->andReturn(['productSet' => ['product' => [
-                'id' => 'gid://shopify/Product/123', 'media' => ['nodes' => [
-                    ['id' => 'gid://shopify/MediaImage/other'], ['id' => 'gid://shopify/MediaImage/new'],
-                ]],
-            ], 'userErrors' => []]]);
-        $gateway->shouldReceive('query')->once()
-            ->withArgs(fn ($shop, $query, $variables) => str_contains($query, 'productReorderMedia')
-                && $variables['id'] === 'gid://shopify/Product/123'
-                && $variables['moves'] === [['id' => 'gid://shopify/MediaImage/new', 'newPosition' => 0]])
-            ->andReturn(['productReorderMedia' => ['job' => ['id' => 'gid://shopify/Job/1'], 'mediaUserErrors' => []]]);
-        $gateway->shouldReceive('query')->once()
-            ->withArgs(fn ($shop, $query, $variables) => str_contains($query, 'productSet') && $variables['input']['files'] === [
-                ['id' => 'gid://shopify/MediaImage/new'],
-                ['id' => 'gid://shopify/MediaImage/other'],
-            ])
-            ->andReturn(['productSet' => ['product' => [
-                'id' => 'gid://shopify/Product/123', 'media' => ['nodes' => [['id' => 'gid://shopify/MediaImage/new']]],
-            ], 'userErrors' => []]]);
+            ->withArgs(fn ($shop, $query) => $shop->is($merchant)
+                && str_contains($query, 'query ConfigurationProduct(')
+                && ! str_contains($query, 'media('))
+            ->andReturn(['product' => $product]);
+        $gateway->shouldReceive('query')->twice()
+            ->withArgs(fn ($shop, $query, $variables) => $shop->is($merchant)
+                && str_contains($query, 'productSet')
+                && ! str_contains($query, 'media(')
+                && array_keys($variables['input']) === ['productOptions', 'variants'])
+            ->andReturn(['productSet' => ['product' => ['id' => 'gid://shopify/Product/123'], 'userErrors' => []]]);
 
         $sync = app(ShopifyConfigurationProductSync::class);
-        $sync->sync($configuration);
-        $this->assertSame('gid://shopify/MediaImage/new', $configuration->shopifyProducts()->first()->shopify_image_id);
-        $this->assertSame('configuration-images/new.jpg', $configuration->shopifyProducts()->first()->shopify_synced_image_path);
-        $sync->sync($configuration->fresh());
+        $this->assertSame(1, $sync->sync($configuration));
+        $this->assertSame(1, $sync->sync($configuration->fresh()));
+        $this->assertSame('gid://shopify/MediaImage/old', $target->fresh()->shopify_image_id);
+        $this->assertSame('configuration-images/old.jpg', $target->fresh()->shopify_synced_image_path);
     }
 
     public function test_shopify_failure_keeps_the_saved_configuration_editable(): void

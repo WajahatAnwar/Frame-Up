@@ -7,9 +7,11 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['user_id', 'name', 'shopify_product_type', 'status', 'shopify_product_id', 'image_path', 'shopify_image_id', 'shopify_synced_image_path'])]
+#[Fillable(['user_id', 'name', 'shopify_product_type', 'status', 'shopify_product_id'])]
 class Configuration extends Model
 {
+    protected $hidden = ['image_path', 'shopify_image_id', 'shopify_synced_image_path'];
+
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);

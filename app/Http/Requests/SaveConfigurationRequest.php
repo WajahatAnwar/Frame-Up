@@ -48,7 +48,7 @@ class SaveConfigurationRequest extends FormRequest
                 ]),
             ],
             'status' => ['required', Rule::in(['draft', 'active'])],
-            'image' => ['nullable', 'image', 'mimes:jpeg,png,webp', 'max:5120'],
+            'image' => ['prohibited'],
             'print_types' => ['present', 'array', 'max:20'],
             'print_types.*.collection_id' => ['nullable', 'integer'],
             'print_types.*.product_id' => ['nullable', 'integer'],

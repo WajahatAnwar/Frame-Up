@@ -1,5 +1,5 @@
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { authenticatedFetch, withEmbeddedContext } from '../../shopify-auth';
 import { visitEmbedded } from '../../polaris-navigation';
 
@@ -54,11 +54,8 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     const { data, setData, post, transform, processing, errors } = useForm({
         shopify_product_type: configuration?.shopify_product_type ?? '',
         status: configuration?.status ?? 'draft',
-        image: null,
         print_types: initialPrintTypes(configuration),
     });
-    const [imagePreview, setImagePreview] = useState(configuration?.image_url ?? null);
-    const [imageError, setImageError] = useState('');
     const [priceSummaries, setPriceSummaries] = useState([]);
     const [priceError, setPriceError] = useState('');
     const [productTypes, setProductTypes] = useState(configuration?.shopify_product_type ? [configuration.shopify_product_type] : []);
@@ -66,11 +63,21 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     const [productTypesLoading, setProductTypesLoading] = useState(mode !== 'show');
     const [successDismissed, setSuccessDismissed] = useState(false);
     const [errorsDismissed, setErrorsDismissed] = useState(false);
+    const [addedPrintTypeKey, setAddedPrintTypeKey] = useState(null);
+    const addedPrintTypeRef = useRef(null);
     const errorMessages = JSON.stringify(errors);
     const priceSelections = JSON.stringify(data.print_types);
 
     useEffect(() => setSuccessDismissed(false), [flash?.success]);
     useEffect(() => setErrorsDismissed(false), [errorMessages]);
+    useEffect(() => {
+        if (!addedPrintTypeKey || !addedPrintTypeRef.current) return;
+
+        addedPrintTypeRef.current.scrollIntoView({
+            behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+            block: 'start',
+        });
+    }, [addedPrintTypeKey]);
 
     useEffect(() => {
         if (readOnly) return;
@@ -133,19 +140,14 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
         };
     }, [priceSelections, pricingPreviewUrl, data.shopify_product_type]);
 
-    useEffect(() => {
-        if (!data.image) {
-            setImagePreview(configuration?.image_url ?? null);
-            return;
-        }
-
-        const objectUrl = URL.createObjectURL(data.image);
-        setImagePreview(objectUrl);
-        return () => URL.revokeObjectURL(objectUrl);
-    }, [data.image, configuration?.image_url]);
-
     function updatePrintType(index, changes) {
         setData('print_types', data.print_types.map((printType, current) => current === index ? { ...printType, ...changes } : printType));
+    }
+
+    function addPrintType() {
+        const printType = emptyPrintType();
+        setData('print_types', [...data.print_types, printType]);
+        setAddedPrintTypeKey(printType.key);
     }
 
     function save() {
@@ -153,23 +155,9 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
         transform((values) => mode === 'create' ? values : { ...values, _method: 'put' });
         post(url, {
             preserveScroll: true,
-            forceFormData: true,
             onSuccess: () => setSuccessDismissed(false),
             onError: () => setErrorsDismissed(false),
         });
-    }
-
-    function selectImage(event) {
-        const file = event.currentTarget.files?.[0] ?? null;
-        if (file && file.size > 5 * 1024 * 1024) {
-            setImageError('Choose an image smaller than 5 MB.');
-            setData('image', null);
-            event.currentTarget.value = '';
-            return;
-        }
-
-        setImageError('');
-        setData('image', file);
     }
 
     function remove() {
@@ -229,149 +217,161 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                             <s-option value="active">Active</s-option>
                         </s-select>
                         <s-paragraph>Active configurations update matching Shopify products when saved. Drafts leave Shopify products as they are.</s-paragraph>
-                        <s-section heading="Product image">
-                            <s-stack direction="block" gap="base">
-                                {imagePreview && <s-thumbnail src={imagePreview} alt={`${data.shopify_product_type || 'Configuration'} product image`} size="large" />}
-                                {!readOnly && (
-                                    <s-drop-zone
-                                        label={configuration?.image_path ? 'Replace product image' : 'Add product image'}
-                                        accessibilityLabel="Choose a JPEG, PNG, or WebP product image"
-                                        accept="image/jpeg,image/png,image/webp"
-                                        disabled={processing}
-                                        error={imageError || errors.image}
-                                        onChange={selectImage}
-                                        onDropRejected={() => setImageError('Choose a JPEG, PNG, or WebP image.')}
-                                    />
-                                )}
-                                {data.image && <s-text>{data.image.name}</s-text>}
-                                {!imagePreview && readOnly && <s-paragraph>No product image selected.</s-paragraph>}
-                                {!readOnly && <s-paragraph>Optional. JPEG, PNG, or WebP, up to 5 MB. This becomes the first image on each targeted Shopify product.</s-paragraph>}
-                            </s-stack>
-                        </s-section>
-                        <s-paragraph>Active configurations require a surface, a preset size, and at least one option in every exclusive group.</s-paragraph>
                     </s-stack>
                 </s-section>
-
-                {configuration && (
-                    <s-section heading="Shopify target">
-                        <s-paragraph>{configuration.shopify_product_type} products receive this configuration when it is active and has complete print types.</s-paragraph>
-                    </s-section>
-                )}
 
                 <s-section heading="2. Print types" subheading="Add the print choices available for this Shopify product type.">
-                    <s-stack direction="block" gap="base">
-                        {data.print_types.length === 0 && <s-paragraph>No print types added yet.</s-paragraph>}
-                        {!readOnly && <s-button onClick={() => setData('print_types', [...data.print_types, emptyPrintType()])}>Add print type</s-button>}
+                    <s-stack direction="block" gap="large">
+                        {data.print_types.length > 0 && (
+                            <s-stack direction="inline" gap="base" alignItems="center" justifyContent="space-between">
+                                <s-text tone="subdued">{data.print_types.length} {data.print_types.length === 1 ? 'print type' : 'print types'} configured</s-text>
+                                {!readOnly && <s-button variant="primary" disabled={processing} onClick={addPrintType}>Add print type</s-button>}
+                            </s-stack>
+                        )}
+                        {data.print_types.length === 0 && (
+                            <s-box padding="base" background="subdued" borderRadius="base">
+                                <s-stack direction="block" gap="base">
+                                    <s-heading>{readOnly ? 'No print types added' : 'Add your first print type'}</s-heading>
+                                    <s-paragraph>Choose a print type and surface, then select the sizes and add-ons available to customers.</s-paragraph>
+                                    {!readOnly && <s-button variant="primary" disabled={processing} onClick={addPrintType}>Add print type</s-button>}
+                                </s-stack>
+                            </s-box>
+                        )}
+
+                        {data.print_types.map((printType, index) => {
+                            const collection = catalog.find((item) => item.id === Number(printType.collection_id));
+                            const surface = collection?.surfaces.find((item) => item.id === Number(printType.product_id));
+                            const basic = surface?.addons.filter((addon) => addon.category === 'basic') ?? [];
+                            const advance = surface?.addons.filter((addon) => addon.category === 'advance') ?? [];
+                            const other = surface?.addons.filter((addon) => addon.category === 'other') ?? [];
+                            const exclusive = (surface?.addons.filter((addon) => addon.category === 'exclusive') ?? [])
+                                .reduce((groups, addon) => ({ ...groups, [addon.group]: [...(groups[addon.group] ?? []), addon] }), {});
+                            const priceSummary = priceSummaries.find((summary) => summary.index === index);
+
+                            return (
+                                <s-box key={printType.key} ref={printType.key === addedPrintTypeKey ? addedPrintTypeRef : undefined} borderWidth="base" borderColor="base" borderRadius="large" overflow="hidden">
+                                    <s-box padding="base" background="subdued">
+                                        <s-stack direction="inline" gap="base" alignItems="center" justifyContent="space-between">
+                                            <s-stack direction="block" gap="tight">
+                                                <s-badge>Print type {index + 1}</s-badge>
+                                                <s-heading>{collection?.title || 'New print type'}</s-heading>
+                                                <s-text tone="subdued">{surface?.title || 'Choose a print type and surface below.'}</s-text>
+                                            </s-stack>
+                                            {!readOnly && (
+                                                <s-button variant="tertiary" tone="critical" disabled={processing} onClick={() => setData('print_types', data.print_types.filter((_, current) => current !== index))}>
+                                                    Remove print type
+                                                </s-button>
+                                            )}
+                                        </s-stack>
+                                    </s-box>
+                                    <s-box padding="base">
+                                        <s-stack direction="block" gap="large">
+                                            <s-stack direction="block" gap="base">
+                                                <s-heading>1. Print type and surface</s-heading>
+                                                <s-stack direction="block" gap="base">
+                                                    <s-select
+                                                        label="Print type"
+                                                        value={String(printType.collection_id)}
+                                                        disabled={readOnly}
+                                                        error={errors[`print_types.${index}.collection_id`]}
+                                                        onChange={(event) => updatePrintType(index, {
+                                                            collection_id: event.currentTarget.value ? Number(event.currentTarget.value) : '',
+                                                            product_id: '', variant_ids: [], addon_ids: [],
+                                                        })}
+                                                    >
+                                                        <s-option value="">Choose a print type</s-option>
+                                                        {catalog.map((item) => <s-option key={item.id} value={String(item.id)}>{item.title}</s-option>)}
+                                                    </s-select>
+                                                    <s-select
+                                                        label="Surface"
+                                                        value={String(printType.product_id)}
+                                                        disabled={readOnly || !collection}
+                                                        error={errors[`print_types.${index}.product_id`]}
+                                                        onChange={(event) => updatePrintType(index, {
+                                                            product_id: event.currentTarget.value ? Number(event.currentTarget.value) : '',
+                                                            variant_ids: [], addon_ids: [],
+                                                        })}
+                                                    >
+                                                        <s-option value="">Choose a surface</s-option>
+                                                        {collection?.surfaces.map((item) => {
+                                                            const usedByAnotherPrintType = data.print_types.some((other, otherIndex) =>
+                                                                otherIndex !== index && Number(other.product_id) === Number(item.id),
+                                                            );
+
+                                                            return (
+                                                                <s-option key={item.id} value={String(item.id)} disabled={usedByAnotherPrintType}>
+                                                                    {item.title}{usedByAnotherPrintType ? ' (already selected)' : ''}
+                                                                </s-option>
+                                                            );
+                                                        })}
+                                                    </s-select>
+                                                </s-stack>
+                                            </s-stack>
+
+                                            <s-stack direction="block" gap="base">
+                                                <s-heading>2. Preset sizes</s-heading>
+                                                {surface ? (
+                                                    <s-stack direction="block" gap="tight">
+                                                        {surface.variants.length === 0 && <s-paragraph>No predefined sizes are available for this surface.</s-paragraph>}
+                                                        <s-stack direction="inline" gap="base">
+                                                            {surface.variants.map((variant) => (
+                                                                <s-checkbox
+                                                                    key={variant.id}
+                                                                    label={variant.title || `${variant.width} × ${variant.height}`}
+                                                                    checked={printType.variant_ids.includes(variant.id)}
+                                                                    disabled={readOnly}
+                                                                    onChange={(event) => updatePrintType(index, {
+                                                                        variant_ids: toggleId(printType.variant_ids, variant.id, event.currentTarget.checked),
+                                                                    })}
+                                                                />
+                                                            ))}
+                                                        </s-stack>
+                                                    </s-stack>
+                                                ) : <s-paragraph>Choose a surface to see its preset sizes.</s-paragraph>}
+                                            </s-stack>
+
+                                            <s-stack direction="block" gap="base">
+                                                <s-heading>3. Customer add-ons</s-heading>
+                                                {surface ? (
+                                                    <s-stack direction="block" gap="base">
+                                                        {surface.addons.length === 0 && <s-paragraph>No add-ons are available for this surface.</s-paragraph>}
+                                                        <AddonChoices label="Basic · customers may choose multiple" addons={basic} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
+                                                        <AddonChoices label="Advance · customers choose one" addons={advance} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
+                                                        <AddonChoices label="Other related add-ons" addons={other} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
+                                                        {Object.entries(exclusive).map(([group, addons]) => (
+                                                            <AddonChoices key={group} label={`${group} · offer at least one option`} addons={addons} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
+                                                        ))}
+                                                    </s-stack>
+                                                ) : <s-paragraph>Choose a surface to see its add-ons.</s-paragraph>}
+                                            </s-stack>
+                                            <s-box padding="base" background="subdued" borderRadius="base">
+                                                <s-stack direction="block" gap="base">
+                                                    <s-heading>4. Total selling price</s-heading>
+                                                    {priceSummary ? (
+                                                        <s-stack direction="block" gap="tight">
+                                                            <s-heading>{priceSummary.min_price === priceSummary.max_price
+                                                                ? priceSummary.min_price
+                                                                : `${priceSummary.min_price} – ${priceSummary.max_price}`}</s-heading>
+                                                            <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including add-ons and the {priceMultiplier}x store multiplier.</s-paragraph>
+                                                        </s-stack>
+                                                    ) : <s-paragraph>{priceError || 'Select a priced size to see the total.'}</s-paragraph>}
+                                                </s-stack>
+                                            </s-box>
+                                        </s-stack>
+                                    </s-box>
+                                </s-box>
+                            );
+                        })}
+                        {!readOnly && data.print_types.length > 0 && (
+                            <s-box padding="base" background="subdued" borderRadius="base">
+                                <s-stack direction="inline" gap="base" alignItems="center" justifyContent="space-between">
+                                    <s-text>Add another print type or surface to this configuration.</s-text>
+                                    <s-button disabled={processing} onClick={addPrintType}>Add print type</s-button>
+                                </s-stack>
+                            </s-box>
+                        )}
                     </s-stack>
                 </s-section>
-
-                {data.print_types.map((printType, index) => {
-                    const collection = catalog.find((item) => item.id === Number(printType.collection_id));
-                    const surface = collection?.surfaces.find((item) => item.id === Number(printType.product_id));
-                    const basic = surface?.addons.filter((addon) => addon.category === 'basic') ?? [];
-                    const advance = surface?.addons.filter((addon) => addon.category === 'advance') ?? [];
-                    const other = surface?.addons.filter((addon) => addon.category === 'other') ?? [];
-                    const exclusive = (surface?.addons.filter((addon) => addon.category === 'exclusive') ?? [])
-                        .reduce((groups, addon) => ({ ...groups, [addon.group]: [...(groups[addon.group] ?? []), addon] }), {});
-                    const priceSummary = priceSummaries.find((summary) => summary.index === index);
-
-                    return (
-                        <s-section key={printType.key} heading={`Print type ${index + 1}${collection ? ` · ${collection.title}` : ''}`} subheading={surface?.title || 'Choose a print type and surface to set its options.'}>
-                            {!readOnly && (
-                                <s-button slot="secondary-actions" tone="critical" onClick={() => setData('print_types', data.print_types.filter((_, current) => current !== index))}>
-                                    Remove
-                                </s-button>
-                            )}
-                            <s-stack direction="block" gap="base">
-                                <s-section heading="Selection">
-                                    <s-stack direction="block" gap="base">
-                                        <s-select
-                                            label="Print type"
-                                            value={String(printType.collection_id)}
-                                            disabled={readOnly}
-                                            error={errors[`print_types.${index}.collection_id`]}
-                                            onChange={(event) => updatePrintType(index, {
-                                                collection_id: event.currentTarget.value ? Number(event.currentTarget.value) : '',
-                                                product_id: '', variant_ids: [], addon_ids: [],
-                                            })}
-                                        >
-                                            <s-option value="">Choose a print type</s-option>
-                                            {catalog.map((item) => <s-option key={item.id} value={String(item.id)}>{item.title}</s-option>)}
-                                        </s-select>
-                                        <s-select
-                                            label="Surface"
-                                            value={String(printType.product_id)}
-                                            disabled={readOnly || !collection}
-                                            error={errors[`print_types.${index}.product_id`]}
-                                            onChange={(event) => updatePrintType(index, {
-                                                product_id: event.currentTarget.value ? Number(event.currentTarget.value) : '',
-                                                variant_ids: [], addon_ids: [],
-                                            })}
-                                        >
-                                            <s-option value="">Choose a surface</s-option>
-                                            {collection?.surfaces.map((item) => {
-                                                const usedByAnotherPrintType = data.print_types.some((other, otherIndex) =>
-                                                    otherIndex !== index && Number(other.product_id) === Number(item.id),
-                                                );
-
-                                                return (
-                                                    <s-option key={item.id} value={String(item.id)} disabled={usedByAnotherPrintType}>
-                                                        {item.title}{usedByAnotherPrintType ? ' (already selected)' : ''}
-                                                    </s-option>
-                                                );
-                                            })}
-                                        </s-select>
-                                    </s-stack>
-                                </s-section>
-
-                                <s-section heading="Available preset sizes">
-                                    {surface ? (
-                                        <s-stack direction="block" gap="tight">
-                                            {surface.variants.length === 0 && <s-paragraph>No predefined sizes are available for this surface.</s-paragraph>}
-                                            <s-stack direction="inline" gap="base">
-                                                {surface.variants.map((variant) => (
-                                                    <s-checkbox
-                                                        key={variant.id}
-                                                        label={variant.title || `${variant.width} × ${variant.height}`}
-                                                        checked={printType.variant_ids.includes(variant.id)}
-                                                        disabled={readOnly}
-                                                        onChange={(event) => updatePrintType(index, {
-                                                            variant_ids: toggleId(printType.variant_ids, variant.id, event.currentTarget.checked),
-                                                        })}
-                                                    />
-                                                ))}
-                                            </s-stack>
-                                        </s-stack>
-                                    ) : <s-paragraph>Choose a surface to see its preset sizes.</s-paragraph>}
-                                </s-section>
-
-                                <s-section heading="Add-ons offered to customers">
-                                    {surface ? (
-                                        <s-stack direction="block" gap="base">
-                                            {surface.addons.length === 0 && <s-paragraph>No add-ons are available for this surface.</s-paragraph>}
-                                            <AddonChoices label="Basic · customers may choose multiple" addons={basic} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                            <AddonChoices label="Advance · customers choose one" addons={advance} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                            <AddonChoices label="Other related add-ons" addons={other} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                            {Object.entries(exclusive).map(([group, addons]) => (
-                                                <AddonChoices key={group} label={`${group} · offer at least one option`} addons={addons} selectedIds={printType.addon_ids} disabled={readOnly} onToggle={(id, checked) => updatePrintType(index, { addon_ids: toggleId(printType.addon_ids, id, checked) })} />
-                                            ))}
-                                        </s-stack>
-                                    ) : <s-paragraph>Choose a surface to see its add-ons.</s-paragraph>}
-                                </s-section>
-                                <s-section heading="Total selling price">
-                                    {priceSummary ? (
-                                        <s-stack direction="block" gap="tight">
-                                            <s-heading>{priceSummary.min_price === priceSummary.max_price
-                                                ? priceSummary.min_price
-                                                : `${priceSummary.min_price} – ${priceSummary.max_price}`}</s-heading>
-                                            <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including add-ons and the {priceMultiplier}x store multiplier.</s-paragraph>
-                                        </s-stack>
-                                    ) : <s-paragraph>{priceError || 'Select a priced size to see the total.'}</s-paragraph>}
-                                </s-section>
-                            </s-stack>
-                        </s-section>
-                    );
-                })}
 
                 <s-section heading="3. Pricing">
                     <s-link slot="secondary-actions" href={withEmbeddedContext(settingsUrl)} onClick={(event) => visitEmbedded(event, settingsUrl)}>Edit in Settings</s-link>
