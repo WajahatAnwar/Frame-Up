@@ -10,7 +10,7 @@ function formatUpdatedAt(value) {
 export default function ConfigurationsIndex({ configurations, filters, statusCounts, printTypeOptions, indexUrl, createUrl }) {
     const [search, setSearch] = useState(filters.search);
     const [status, setStatus] = useState(filters.status);
-    const [printType, setPrintType] = useState(filters.print_type);
+    const [printType, setPrintType] = useState(filters.print_type || 'none');
     const [sort, setSort] = useState(filters.sort);
     const searchTimer = useRef(null);
     const skipSearchDebounce = useRef(false);
@@ -20,7 +20,7 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
         const previous = previousFilters.current;
         setSearch((current) => current === previous.search ? filters.search : current);
         setStatus((current) => current === previous.status ? filters.status : current);
-        setPrintType((current) => current === previous.print_type ? filters.print_type : current);
+        setPrintType((current) => current === (previous.print_type || 'none') ? (filters.print_type || 'none') : current);
         setSort((current) => current === previous.sort ? filters.sort : current);
         previousFilters.current = filters;
     }, [filters.search, filters.status, filters.print_type, filters.sort]);
@@ -37,10 +37,8 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
 
     function applyFilters(changes = {}) {
         window.clearTimeout(searchTimer.current);
-        if(changes?.print_type == 'none' || printType == 'none') {
-            changes.print_type = '';
-        }
         const next = { search: search.trim(), status, print_type: printType, sort, ...changes };
+        if (next.print_type === 'none') next.print_type = '';
         router.get(withEmbeddedContext(indexUrl), Object.fromEntries(Object.entries(next).filter(([, value]) => value !== '' && value !== 'recent')), {
             preserveState: true,
             preserveScroll: true,
@@ -52,12 +50,12 @@ export default function ConfigurationsIndex({ configurations, filters, statusCou
         skipSearchDebounce.current = true;
         setSearch('');
         setStatus('');
-        setPrintType('');
+        setPrintType('none');
         setSort('recent');
         applyFilters({ search: '', status: '', print_type: '', sort: 'recent' });
     }
 
-    const hasFilters = Boolean(search || status || printType || sort !== 'recent');
+    const hasFilters = Boolean(search || status || printType !== 'none' || sort !== 'recent');
 
     return (
         <>
