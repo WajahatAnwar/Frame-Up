@@ -24,7 +24,6 @@ class CatalogSyncTest extends TestCase
             $table->string('whitePaperPrice')->nullable();
             $table->string('metallicPaperPrice')->nullable();
             $table->boolean('paperSelection')->nullable();
-            $table->decimal('white_to_gray_strength', 5, 2)->nullable();
         });
 
         DB::table('products')->insert(['id' => 21, 'title' => 'Canvas print']);
@@ -38,6 +37,12 @@ class CatalogSyncTest extends TestCase
         }
 
         $this->assertSame('gallery', DB::table('product_settings')->where('id', 31)->value('canvas_type'));
+        $restore = require database_path('migrations/2026_10_08_145728_restore_white_to_gray_strength_to_product_settings.php');
+        $restore->up();
+        DB::table('product_settings')->where('id', 31)->update(['white_to_gray_strength' => 0.75]);
+        $restore->up();
+        $this->assertSame('gallery', DB::table('product_settings')->where('id', 31)->value('canvas_type'));
+        $this->assertEquals(0.75, DB::table('product_settings')->where('id', 31)->value('white_to_gray_strength'));
     }
 
     public function test_authenticated_shop_can_queue_a_catalog_pull(): void
@@ -68,9 +73,9 @@ class CatalogSyncTest extends TestCase
                 ['id' => 23, 'user_id' => 999, 'title' => 'Exclusive border', 'addons_check' => 1, 'pre_configured' => false],
             ],
             'product_settings' => [
-                ['id' => 31, 'product_id' => 21, 'canvas_type' => 'gallery', 'thickness' => '1.5', 'wood_mount_type' => 'none'],
-                ['id' => 32, 'product_id' => 22, 'addon_options' => 'basic', 'basic_option_name' => 'mount', 'addonAdvanceOption' => 'wrap', 'wood_mount_type' => 'none'],
-                ['id' => 33, 'product_id' => 23, 'addon_options' => 'exclusive', 'exclusive_option' => 'border', 'wood_mount_type' => 'none'],
+                ['id' => 31, 'product_id' => 21, 'canvas_type' => 'gallery', 'thickness' => '1.5', 'wood_mount_type' => 'none', 'white_to_gray_strength' => 0.75],
+                ['id' => 32, 'product_id' => 22, 'addon_options' => 'basic', 'basic_option_name' => 'mount', 'addonAdvanceOption' => 'wrap', 'wood_mount_type' => 'none', 'white_to_gray_strength' => 0],
+                ['id' => 33, 'product_id' => 23, 'addon_options' => 'exclusive', 'exclusive_option' => 'border', 'wood_mount_type' => 'none', 'white_to_gray_strength' => 0],
             ],
             'product_varients' => [['id' => 41, 'product_id' => 23, 'price' => 12.5]],
             'product_media' => [['id' => 51, 'product_id' => '21', 'src' => 'https://cdn.example/canvas.jpg']],
@@ -96,6 +101,7 @@ class CatalogSyncTest extends TestCase
         $this->assertSame('none', DB::table('product_settings')->where('product_id', 21)->value('wood_mount_type'));
         $this->assertSame('wrap', DB::table('product_settings')->where('product_id', 22)->value('addonAdvanceOption'));
         $this->assertSame('1.5', DB::table('product_settings')->where('product_id', 21)->value('thickness'));
+        $this->assertEquals(0.75, DB::table('product_settings')->where('product_id', 21)->value('white_to_gray_strength'));
         $this->assertSame('exclusive', DB::table('product_settings')->where('product_id', 23)->value('addon_options'));
         $this->assertSame(1, DB::table('collection_product')->first()->is_default);
         $this->assertSame(23, DB::table('addon_product')->where('id', 72)->value('addon_id'));
@@ -127,6 +133,28 @@ class CatalogSyncTest extends TestCase
         }
 
         $this->assertSame(0, DB::table('collections')->count());
+    }
+
+    public function test_unmapped_columns_are_named_and_rejected_before_catalog_writes(): void
+    {
+        config()->set('services.frame_up_source.url', 'https://source.example');
+        config()->set('services.frame_up_source.key', 'shared-secret');
+        $catalog = array_fill_keys([
+            'collections', 'products', 'product_settings', 'product_varients', 'product_media',
+            'collection_product', 'addon_product', 'addons_collections_sizes',
+        ], []);
+        $catalog['products'] = [['id' => 21, 'title' => 'Canvas']];
+        $catalog['product_settings'] = [['id' => 31, 'product_id' => 21, 'future_setting' => 'example']];
+        Http::fake(['source.example/*' => Http::response(['data' => $catalog])]);
+
+        try {
+            (new PullCatalogFrom3dFrames)->handle();
+            $this->fail('Unmapped columns should be rejected.');
+        } catch (\RuntimeException $exception) {
+            $this->assertStringContainsString('product_settings row at index 0 contains unmapped columns: future_setting', $exception->getMessage());
+        }
+
+        $this->assertDatabaseCount('products', 0);
     }
 
     public function test_global_catalog_keeps_source_owners_without_copies_per_frame_up_user(): void

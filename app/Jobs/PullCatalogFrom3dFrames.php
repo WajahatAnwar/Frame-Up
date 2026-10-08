@@ -64,9 +64,13 @@ class PullCatalogFrom3dFrames implements ShouldBeUnique, ShouldQueue
             }
 
             $columns = Schema::getColumnListing($table);
-            foreach ($data[$table] as $row) {
-                if (! is_array($row) || ! isset($row['id']) || array_diff(array_keys($row), $columns)) {
-                    throw new RuntimeException("Frame Up catalog contains an invalid {$table} row or an unmapped column.");
+            foreach ($data[$table] as $index => $row) {
+                if (! is_array($row) || ! isset($row['id'])) {
+                    throw new RuntimeException("Frame Up catalog contains an invalid {$table} row at index {$index}: an ID is required.");
+                }
+                $unmappedColumns = array_diff(array_keys($row), $columns);
+                if ($unmappedColumns !== []) {
+                    throw new RuntimeException("Frame Up catalog {$table} row at index {$index} contains unmapped columns: ".implode(', ', $unmappedColumns).'. Run the catalog schema migrations before retrying.');
                 }
             }
         }
