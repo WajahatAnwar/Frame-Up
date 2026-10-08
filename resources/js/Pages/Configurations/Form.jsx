@@ -43,6 +43,14 @@ function toggleId(ids, id, checked) {
     return checked ? [...new Set([...ids, Number(id)])] : ids.filter((existing) => Number(existing) !== Number(id));
 }
 
+function requestErrorMessage(error, fallback) {
+    if (error instanceof TypeError || error instanceof SyntaxError || error.name === 'NetworkError') {
+        return fallback;
+    }
+
+    return error.message || fallback;
+}
+
 function AddonChoices({ label, addons, selectedIds, disabled, onToggle }) {
     if (addons.length === 0) return null;
 
@@ -77,6 +85,8 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
     const [productTypes, setProductTypes] = useState(configuration?.shopify_product_type ? [configuration.shopify_product_type] : []);
     const [productTypesError, setProductTypesError] = useState('');
     const [productTypesLoading, setProductTypesLoading] = useState(mode !== 'show');
+    const [productTypesRetry, setProductTypesRetry] = useState(0);
+    const [priceRetry, setPriceRetry] = useState(0);
     const [successDismissed, setSuccessDismissed] = useState(false);
     const [errorsDismissed, setErrorsDismissed] = useState(false);
     const [addedPrintTypeKey, setAddedPrintTypeKey] = useState(null);
@@ -99,6 +109,8 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
         if (readOnly) return;
 
         const controller = new AbortController();
+        setProductTypesLoading(true);
+        setProductTypesError('');
         authenticatedFetch(productTypesUrl, { signal: controller.signal })
             .then(async (response) => {
                 const result = await response.json();
@@ -107,16 +119,19 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                 setProductTypesError('');
             })
             .catch((error) => {
-                if (error.name !== 'AbortError') setProductTypesError(error.message || 'Shopify product types could not be loaded.');
+                if (!controller.signal.aborted && error.name !== 'AbortError') {
+                    setProductTypesError(requestErrorMessage(error, 'We couldn’t load Shopify product types. Check your connection and try again.'));
+                }
             })
             .finally(() => { if (!controller.signal.aborted) setProductTypesLoading(false); });
 
         return () => controller.abort();
-    }, [configuration?.shopify_product_type, productTypesUrl, readOnly]);
+    }, [configuration?.shopify_product_type, productTypesUrl, readOnly, productTypesRetry]);
 
     useEffect(() => {
         const controller = new AbortController();
         const selections = JSON.parse(priceSelections);
+        setPriceError('');
         if (!selections.some((row) => row.product_id && row.variant_ids.length > 0)) {
             setPriceSummaries([]);
             setPriceError('');
@@ -142,9 +157,9 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                 setPriceSummaries(result.print_types ?? []);
                 setPriceError('');
             } catch (error) {
-                if (error.name !== 'AbortError') {
+                if (!controller.signal.aborted && error.name !== 'AbortError') {
                     setPriceSummaries([]);
-                    setPriceError(error.message || 'Prices could not be calculated.');
+                    setPriceError(requestErrorMessage(error, 'We couldn’t load the price preview. Your selections are still here. Check your connection and try again.'));
                 }
             }
         }, 350);
@@ -153,7 +168,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
             clearTimeout(timer);
             controller.abort();
         };
-    }, [priceSelections, pricingPreviewUrl, data.shopify_product_type]);
+    }, [priceSelections, pricingPreviewUrl, data.shopify_product_type, priceRetry]);
 
     function updatePrintType(index, changes) {
         setData('print_types', data.print_types.map((printType, current) => current === index ? { ...printType, ...changes } : printType));
@@ -213,7 +228,22 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                     </s-banner>
                 )}
 
-                {productTypesError && <s-banner tone="critical" dismissible onDismiss={() => setProductTypesError('')}>{productTypesError}</s-banner>}
+                {productTypesError && (
+                    <s-banner tone="critical" heading="Product types couldn’t be loaded" dismissible onDismiss={() => setProductTypesError('')}>
+                        <s-stack direction="block" gap="tight">
+                            <s-paragraph>{productTypesError}</s-paragraph>
+                            <s-button onClick={() => setProductTypesRetry((attempt) => attempt + 1)}>Retry</s-button>
+                        </s-stack>
+                    </s-banner>
+                )}
+                {priceError && (
+                    <s-banner tone="warning" heading="Price preview unavailable" dismissible onDismiss={() => setPriceError('')}>
+                        <s-stack direction="block" gap="tight">
+                            <s-paragraph>{priceError}</s-paragraph>
+                            <s-button onClick={() => setPriceRetry((attempt) => attempt + 1)}>Retry</s-button>
+                        </s-stack>
+                    </s-banner>
+                )}
 
                 <s-section heading="1. Product basic details">
                     <s-stack direction="block" gap="base">
@@ -401,7 +431,7 @@ export default function ConfigurationForm({ mode, configuration, catalog, submit
                                                                 : `${priceSummary.min_price} – ${priceSummary.max_price}`}</s-heading>
                                                             <s-paragraph>Across {priceSummary.variant_count} selected size and mount {priceSummary.variant_count === 1 ? 'combination' : 'combinations'}, including applicable add-ons and store pricing.</s-paragraph>
                                                         </s-stack>
-                                                    ) : <s-paragraph>{priceError || 'Select a priced size to see the total.'}</s-paragraph>}
+                                                    ) : <s-paragraph>{priceError ? 'The price preview is temporarily unavailable.' : 'Select a priced size to see the total.'}</s-paragraph>}
                                                 </s-stack>
                                             </s-box>
                                         </s-stack>
