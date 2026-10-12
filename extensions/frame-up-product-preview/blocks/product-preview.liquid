@@ -1,0 +1,100 @@
+{% if request.page_type == 'product' and product != blank and product.featured_image != blank %}
+  {% assign preview_assets = block.settings.proxy_path | default: '/apps/frame-up' | append: '/assets/' %}
+  <frame-up-preview
+    hidden
+    data-proxy-path="{{ block.settings.proxy_path | escape }}"
+    data-media-selector="{{ block.settings.media_selector | escape }}"
+    data-room-width="{{ block.settings.room_width }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=12' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=12' | escape }}"
+    data-environment-url="{{ preview_assets | append: 'lebombo_1k.hdr' | escape }}"
+    data-surface-texture-url="{{ preview_assets | append: 'concrete-light.jpg' | escape }}"
+  >
+    <script type="application/json" data-frame-up-product>
+      {
+        "id": {{ product.id | append: '' | json }},
+        "type": {{ product.type | json | replace: '<', '\u003c' }},
+        "handle": {{ product.handle | json }},
+        "title": {{ product.title | json | replace: '<', '\u003c' }},
+        "image": {{ product.featured_image | image_url: width: 1800 | json }},
+        "imageWidth": {{ product.featured_image.width | json }},
+        "imageHeight": {{ product.featured_image.height | json }},
+        "optionNames": {{ product.options | json | replace: '<', '\u003c' }},
+        "selectedVariant": {{ product.selected_or_first_available_variant | json | replace: '<', '\u003c' }}
+      }
+    </script>
+    <div class="frame-up-stage" data-mode="spatial" role="region" tabindex="0" aria-label="Artwork preview. Hover to view depth. Click or press Enter to zoom in or out.">
+      {% if block.settings.room_image != blank %}
+        {{ block.settings.room_image | image_url: width: 1800 | image_tag: class: 'frame-up-room', alt: 'Room setting', loading: 'lazy' }}
+      {% else %}
+        <img class="frame-up-room" src="{{ preview_assets | append: 'room-living.jpg' | escape }}" alt="Room setting" width="1979" height="1321" loading="lazy">
+      {% endif %}
+      <div class="frame-up-object" aria-label="Framed artwork">
+        <div class="frame-up-back"></div>
+        <div class="frame-up-edge frame-up-edge-left"></div>
+        <div class="frame-up-edge frame-up-edge-right"></div>
+        <div class="frame-up-edge frame-up-edge-top"></div>
+        <div class="frame-up-edge frame-up-edge-bottom"></div>
+        <div class="frame-up-face">
+          <div class="frame-up-mat">
+            <img class="frame-up-art" alt="{{ product.title | escape }}" width="{{ product.featured_image.width }}" height="{{ product.featured_image.height }}" draggable="false">
+            <div class="frame-up-tint"></div>
+          </div>
+          <div class="frame-up-glass"></div>
+        </div>
+      </div>
+      <button class="frame-up-view-toggle" type="button" aria-pressed="false">View in a room</button>
+      <span class="frame-up-sr-only" aria-live="polite" data-frame-up-description></span>
+    </div>
+  </frame-up-preview>
+  <script>
+    (async (host) => {
+      if (!host || host.dataset.loading) return;
+      host.dataset.loading = 'true';
+      try {
+        const proxy = (host.dataset.proxyPath || '/apps/frame-up').replace(/\/$/, '');
+        if (!/^\/(apps|a|community|tools)\/[\w-]+$/.test(proxy)) return;
+        const product = JSON.parse(host.querySelector('[data-frame-up-product]').textContent);
+        const query = new URLSearchParams({ product_id: product.id, product_type: product.type });
+        const response = await fetch(`${proxy}/preview?${query}`, { headers: { Accept: 'application/json' } });
+        if (!response.ok) return;
+        const result = await response.json();
+        if (!result.enabled) return;
+        const config = document.createElement('script');
+        config.type = 'application/json';
+        config.dataset.frameUpConfig = '';
+        config.textContent = JSON.stringify(result);
+        host.append(config);
+        const stylesheet = document.createElement('link');
+        stylesheet.rel = 'stylesheet';
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=12`;
+        await new Promise((resolve, reject) => {
+          stylesheet.onload = resolve;
+          stylesheet.onerror = reject;
+          document.head.append(stylesheet);
+        });
+        const script = document.createElement('script');
+        script.src = `${proxy}/assets/product-preview.js?v=12`;
+        script.defer = true;
+        document.head.append(script);
+      } catch (error) {
+        console.warn('Frame Up preview assets could not be loaded.', error);
+      }
+    })(document.currentScript.previousElementSibling);
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "Frame Up product preview",
+  "target": "body",
+  "enabled_on": { "templates": ["product"] },
+  "settings": [
+    { "type": "paragraph", "content": "Shows a spatial artwork preview only on products successfully linked to a Frame Up configuration. Your theme controls sizes, variants and checkout." },
+    { "type": "image_picker", "id": "room_image", "label": "Room background" },
+    { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 120 },
+    { "type": "text", "id": "proxy_path", "label": "App proxy path", "default": "/apps/frame-up", "info": "Match the app proxy prefix and subpath configured for this shop." },
+    { "type": "text", "id": "media_selector", "label": "Product media CSS selector", "info": "Optional for custom themes. Leave empty to detect the product gallery automatically." }
+  ]
+}
+{% endschema %}

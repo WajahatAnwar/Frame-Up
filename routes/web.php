@@ -8,8 +8,18 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\PlansController;
 use App\Http\Controllers\SettingsController;
 use App\Http\Controllers\ShopifyProductTypesController;
+use App\Http\Controllers\StorefrontPreviewAssetController;
+use App\Http\Controllers\StorefrontProductPreviewController;
 use App\Http\Controllers\TemporaryAuthCheckController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('/storefront/preview', StorefrontProductPreviewController::class)
+    ->middleware(['auth.proxy', 'throttle:120,1'])
+    ->name('storefront.product-preview');
+
+Route::get('/storefront/assets/{filename}', StorefrontPreviewAssetController::class)
+    ->where('filename', '[A-Za-z0-9_.-]+')
+    ->name('storefront.preview-asset');
 
 Route::get('/', DashboardController::class)
     ->middleware(['verify.shopify', 'billable'])

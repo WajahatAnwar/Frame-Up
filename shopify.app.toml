@@ -1,0 +1,21 @@
+name = "Frame Up"
+client_id = "3061bd150a952b6794ce3684d55c541b"
+application_url = "https://syedumer.xoarhigh.info"
+embedded = true
+
+[build]
+automatically_update_urls_on_dev = false
+
+[access_scopes]
+scopes = "read_products,write_products,write_app_proxy"
+
+[auth]
+redirect_urls = ["https://syedumer.xoarhigh.info/authenticate"]
+
+[webhooks]
+api_version = "2026-10"
+
+[app_proxy]
+url = "/storefront"
+prefix = "apps"
+subpath = "frame-up"
