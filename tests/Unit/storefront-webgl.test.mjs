@@ -100,12 +100,13 @@ for (const [width, height] of [[4, 6], [20, 30], [48, 96]]) {
       const lights = preview.lights.children.filter((light) => light.isLight);
       const intensities = lights.map((light) => light.intensity);
       preview.environment = { texture: new THREE.Texture() };
-      for (const blend of [0, .5, 1, 0]) {
-        preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 1, { x: 0, y: 0 }, { width: 600, height: 600 }, blend);
+      for (const zoom of [1, 1.075, 3, 1]) {
+        const blend = zoom === 1 ? 1 : zoom === 3 ? 0 : .5;
+        preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, zoom, { x: 0, y: 0 }, { width: 600, height: 600 });
         assert.equal(preview.scene.environment, blend > 0 ? preview.environment.texture : null);
-        assert.equal(image.material.envMapIntensity, reflection * blend);
+        assert.ok(Math.abs(image.material.envMapIntensity - reflection * blend) < 1e-8);
         assert.equal(preview.sourceArtwork.visible, blend < 1);
-        assert.equal(preview.sourceArtwork.material.opacity, 1 - blend);
+        assert.ok(Math.abs(preview.sourceArtwork.material.opacity - (1 - blend)) < 1e-8);
         assert.equal(preview.sourceArtwork.material.map, map, 'unlit artwork must preserve the same image and crop');
         assert.equal(preview.sourceArtwork.material.toneMapped, false);
         assert.equal(preview.sourceArtwork.material.isMeshBasicMaterial, true);

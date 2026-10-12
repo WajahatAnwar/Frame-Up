@@ -15,8 +15,6 @@ export class PreviewInteraction {
     this.magnifierEnabled = false;
     this.pointerInside = false;
     this.magnifierZoom = this.settings.maxZoom;
-    this.environmentBlend = 0;
-    this.targetEnvironmentBlend = 0;
     this.pointerPosition = { x: 0, y: 0 };
     this.state = { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0 };
     this.target = { ...this.state };
@@ -24,14 +22,12 @@ export class PreviewInteraction {
   pointer(x, y) {
     if (!this.pointerInside && this.magnifierEnabled) this.target.zoom = this.magnifierZoom;
     this.pointerInside = true;
-    this.targetEnvironmentBlend = 1;
     this.pointerPosition = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
     this.updateTargets();
   }
   leave() {
     this.pointerInside = false;
     this.pointerPosition = { x: 0, y: 0 };
-    this.targetEnvironmentBlend = 0;
     if (this.magnifierEnabled) this.target.zoom = 1;
     this.updateTargets();
   }
@@ -55,9 +51,6 @@ export class PreviewInteraction {
   step(seconds, reducedMotion = false) {
     const alpha = reducedMotion ? 1 : 1 - Math.exp(-this.settings.damping * clamp(seconds, 0, .05));
     let moving = false;
-    this.environmentBlend += (this.targetEnvironmentBlend - this.environmentBlend) * alpha;
-    if (Math.abs(this.targetEnvironmentBlend - this.environmentBlend) < .0001) this.environmentBlend = this.targetEnvironmentBlend;
-    else moving = true;
     for (const key of Object.keys(this.state)) {
       this.state[key] += (this.target[key] - this.state[key]) * alpha;
       if (Math.abs(this.target[key] - this.state[key]) < .0001) this.state[key] = this.target[key];

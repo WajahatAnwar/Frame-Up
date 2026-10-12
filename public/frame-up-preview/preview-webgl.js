@@ -10178,17 +10178,17 @@ var _s = class {
 	update(e, t, n, r, i, a, o = 1, s = {
 		x: 0,
 		y: 0
-	}, c, l = 1) {
+	}, c) {
 		if (this.disposed || !this.artwork || i <= 0 || a <= 0) return;
-		let u = JSON.stringify([
+		let l = JSON.stringify([
 			e.print.surface.id,
 			e.size.option,
 			e.mount.id,
 			t,
 			n
-		]), d = Number(e.size.width), f = Number(e.size.height);
-		if (u !== this.key) {
-			this.clearModel(), this.group = hs(d, f, t, this.artwork, this.surfaceTexture);
+		]), u = Number(e.size.width), d = Number(e.size.height);
+		if (l !== this.key) {
+			this.clearModel(), this.group = hs(u, d, t, this.artwork, this.surfaceTexture);
 			let e = this.group.children.find((e) => e.userData.role === "artwork");
 			this.sourceArtwork = new Vn(e.geometry.clone(), new an({
 				map: e.material.map,
@@ -10201,20 +10201,20 @@ var _s = class {
 				polygonOffsetUnits: -2
 			})), this.sourceArtwork.position.copy(e.position), this.sourceArtwork.renderOrder = 2, this.group.add(this.sourceArtwork), this.reflections = /* @__PURE__ */ new Map(), this.group.traverse((e) => {
 				for (let t of [e.material].flat().filter(Boolean)) t.envMapIntensity !== void 0 && this.reflections.set(t, t.envMapIntensity);
-			}), this.lights = ps(d, f, n), this.scene.add(this.group, this.lights);
+			}), this.lights = ps(u, d, n), this.scene.add(this.group, this.lights);
 			let r = new Be().setFromObject(this.group);
 			this.modelBounds = r.clone(), this.modelCenter = r.getCenter(new J()), this.modelSize = r.getSize(new J());
 			let i = r.getBoundingSphere(new it());
-			this.modelRadius = i.radius + i.center.length(), this.key = u;
+			this.modelRadius = i.radius + i.center.length(), this.key = l;
 		}
-		let p = n ? 1 : V.clamp(l, 0, 1) * (1 - V.clamp((o - 1) / .15, 0, 1));
-		this.scene.environment = p > 0 ? this.environment?.texture ?? null : null, this.sourceArtwork.visible = p < 1, this.sourceArtwork.material.opacity = 1 - p;
-		for (let [e, t] of this.reflections) e.envMapIntensity = t * p;
-		let m = c?.width ?? i, h = c?.height ?? a;
-		if (m <= 0 || h <= 0) return;
-		(m !== this.pixelWidth || h !== this.pixelHeight) && (this.renderer.setSize(m, h, !1), this.pixelWidth = m, this.pixelHeight = h), this.camera.aspect = m / h, this.camera.zoom = c ? Math.max(.1, o * a / h) : V.clamp(o, 1, 3);
-		let g = this.modelSize, _ = Math.max(g.y, g.x / (i / a)) / (2 * Math.tan(V.degToRad(this.camera.fov / 2))) * (n ? 1.2 : 1.08) + g.z, v = _ * Math.tan(V.degToRad(this.camera.fov / 2)), y = n ? 0 : 1 - 1 / this.camera.zoom, b = c ? Math.max(0, g.x / 2 - v * this.camera.aspect / this.camera.zoom) : v * this.camera.aspect * y, x = c ? Math.max(0, g.y / 2 - v / this.camera.zoom) : v * y;
-		this.camera.position.set(c ? this.modelCenter.x : V.clamp(s.x, -1, 1) * b, c ? this.modelCenter.y + (n ? -v / this.camera.zoom * .4 : 0) : V.clamp(s.y, -1, 1) * x, c ? _ + this.modelCenter.z : _), this.camera.near = Math.max(.01, _ - this.modelRadius * 1.25), this.camera.far = _ + this.modelRadius * 1.25, this.camera.clearViewOffset(), this.camera.updateProjectionMatrix(), this.group.rotation.set(n ? 0 : V.degToRad(r.x), n ? 0 : V.degToRad(r.y), 0), c && !n && this.inspectProjectedProduct(s, m, h, o), this.renderer.render(this.scene, this.camera);
+		let f = n ? 1 : 1 - V.clamp((o - 1) / .15, 0, 1);
+		this.scene.environment = f > 0 ? this.environment?.texture ?? null : null, this.sourceArtwork.visible = f < 1, this.sourceArtwork.material.opacity = 1 - f;
+		for (let [e, t] of this.reflections) e.envMapIntensity = t * f;
+		let p = c?.width ?? i, m = c?.height ?? a;
+		if (p <= 0 || m <= 0) return;
+		(p !== this.pixelWidth || m !== this.pixelHeight) && (this.renderer.setSize(p, m, !1), this.pixelWidth = p, this.pixelHeight = m), this.camera.aspect = p / m, this.camera.zoom = c ? Math.max(.1, o * a / m) : V.clamp(o, 1, 3);
+		let h = this.modelSize, g = Math.max(h.y, h.x / (i / a)) / (2 * Math.tan(V.degToRad(this.camera.fov / 2))) * (n ? 1.2 : 1.08) + h.z, _ = g * Math.tan(V.degToRad(this.camera.fov / 2)), v = n ? 0 : 1 - 1 / this.camera.zoom, y = c ? Math.max(0, h.x / 2 - _ * this.camera.aspect / this.camera.zoom) : _ * this.camera.aspect * v, b = c ? Math.max(0, h.y / 2 - _ / this.camera.zoom) : _ * v;
+		this.camera.position.set(c ? this.modelCenter.x : V.clamp(s.x, -1, 1) * y, c ? this.modelCenter.y + (n ? -_ / this.camera.zoom * .4 : 0) : V.clamp(s.y, -1, 1) * b, c ? g + this.modelCenter.z : g), this.camera.near = Math.max(.01, g - this.modelRadius * 1.25), this.camera.far = g + this.modelRadius * 1.25, this.camera.clearViewOffset(), this.camera.updateProjectionMatrix(), this.group.rotation.set(n ? 0 : V.degToRad(r.x), n ? 0 : V.degToRad(r.y), 0), c && !n && this.inspectProjectedProduct(s, p, m, o), this.renderer.render(this.scene, this.camera);
 	}
 	inspectProjectedProduct(e, t, n, r) {
 		this.group.updateMatrixWorld(!0), this.camera.updateMatrixWorld(!0);

@@ -46,7 +46,7 @@ export default class SpatialPreview {
     return true;
   }
 
-  update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1, focus = { x: 0, y: 0 }, viewport, environmentBlend = 1) {
+  update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1, focus = { x: 0, y: 0 }, viewport) {
     if (this.disposed || !this.artwork || pixelWidth <= 0 || pixelHeight <= 0) return;
     const key = JSON.stringify([selection.print.surface.id, selection.size.option, selection.mount.id, view, room]);
     const width = Number(selection.size.width), height = Number(selection.size.height);
@@ -78,7 +78,7 @@ export default class SpatialPreview {
       this.modelRadius = sphere.radius + sphere.center.length();
       this.key = key;
     }
-    const blend = room ? 1 : THREE.MathUtils.clamp(environmentBlend, 0, 1) * (1 - THREE.MathUtils.clamp((zoom - 1) / .15, 0, 1));
+    const blend = room ? 1 : 1 - THREE.MathUtils.clamp((zoom - 1) / .15, 0, 1);
     this.scene.environment = blend > 0 ? this.environment?.texture ?? null : null;
     this.sourceArtwork.visible = blend < 1;
     this.sourceArtwork.material.opacity = 1 - blend;

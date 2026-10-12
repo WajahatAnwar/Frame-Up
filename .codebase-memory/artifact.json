@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "7ef823098008aeb1c58c079f8143166282abdb74",
-    "indexed_at": "2026-10-12T16:12:26Z",
+    "commit": "799353c1e080efa88e950e003fbf795272d32f44",
+    "indexed_at": "2026-10-12T16:58:12Z",
     "project": "frame-up",
     "nodes": 1225,
     "edges": 1813,
     "original_size": 2752512,
-    "compressed_size": 239639,
+    "compressed_size": 239628,
     "compression_level": 3
 }

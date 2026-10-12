@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=29';
+import * as model from './preview-model.js?v=30';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -436,7 +436,7 @@ export default class FrameUpPreview extends HTMLElement {
       this.spatial.update(value.selection, value.appearance, room,
         this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },
         value.width, value.height, room ? 1 : state.zoom, { x: state.panX, y: state.panY },
-        { width: rect.width, height: rect.height }, room ? 1 : this.interaction.environmentBlend);
+        { width: rect.width, height: rect.height });
       return;
     }
     const zoom = this.mode === 'room' ? 1 : this.zoom ?? 1;

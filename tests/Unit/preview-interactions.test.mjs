@@ -40,14 +40,10 @@ test('clicked magnifier zooms out on exit, resumes on entry, and second click re
   assert.equal(interaction.magnifierEnabled, false);
 });
 
-test('HDR lighting fades in on centered hover and fades out completely on exit', () => {
+test('centered hover leaves the resting orientation unchanged', () => {
   const interaction = new PreviewInteraction();
-  assert.equal(interaction.environmentBlend, 0);
   interaction.pointer(0, 0);
-  assert.equal(interaction.step(1 / 60), true);
-  assert.ok(interaction.environmentBlend > 0 && interaction.environmentBlend < 1);
-  settle(interaction);
-  assert.equal(interaction.environmentBlend, 1);
+  assert.equal(interaction.step(1 / 60), false);
   assert.equal(interaction.state.tiltY, 0);
   interaction.setZoom(3);
   assert.equal(interaction.step(1 / 60), true);
@@ -55,9 +51,6 @@ test('HDR lighting fades in on centered hover and fades out completely on exit',
   interaction.pointer(0, 0);
   assert.equal(interaction.step(1 / 60), false);
   interaction.leave();
-  assert.equal(interaction.step(1 / 60), true);
-  settle(interaction);
-  assert.equal(interaction.environmentBlend, 0);
   assert.equal(interaction.step(1 / 60), false);
 });
 

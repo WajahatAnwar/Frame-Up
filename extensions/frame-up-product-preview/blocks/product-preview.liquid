@@ -5,8 +5,8 @@
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
     data-media-selector="{{ block.settings.media_selector | escape }}"
     data-room-width="{{ block.settings.room_width }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=29' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=29' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=30' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=30' | escape }}"
     data-tilt-x="{{ block.settings.tilt_x }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
@@ -74,14 +74,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=29`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=30`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=29`;
+        script.src = `${proxy}/assets/product-preview.js?v=30`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {
