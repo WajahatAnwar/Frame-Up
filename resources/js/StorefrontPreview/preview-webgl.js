@@ -31,7 +31,7 @@ export default class SpatialPreview {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromEquirectangular(this.hdr);
     pmrem.dispose();
-    this.scene.environment = this.environment.texture;
+    this.scene.environment = null;
     // The HDR illuminates the print, but is not the visible background.
     const textureLoader = new THREE.TextureLoader();
     this.artwork = await textureLoader.loadAsync(imageUrl);
@@ -46,39 +46,100 @@ export default class SpatialPreview {
     return true;
   }
 
-  update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1) {
+  update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1, focus = { x: 0, y: 0 }, viewport, environmentBlend = 1) {
     if (this.disposed || !this.artwork || pixelWidth <= 0 || pixelHeight <= 0) return;
     const key = JSON.stringify([selection.print.surface.id, selection.size.option, selection.mount.id, view, room]);
     const width = Number(selection.size.width), height = Number(selection.size.height);
     if (key !== this.key) {
       this.clearModel();
       this.group = buildPrint(width, height, view, this.artwork, this.surfaceTexture);
+      const artwork = this.group.children.find((mesh) => mesh.userData.role === 'artwork');
+      this.sourceArtwork = new THREE.Mesh(artwork.geometry.clone(), new THREE.MeshBasicMaterial({
+        map: artwork.material.map, color: '#ffffff', toneMapped: false,
+        transparent: true, depthWrite: false,
+        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
+      }));
+      this.sourceArtwork.position.copy(artwork.position);
+      this.sourceArtwork.renderOrder = 2;
+      this.group.add(this.sourceArtwork);
+      this.reflections = new Map();
+      this.group.traverse((mesh) => {
+        for (const material of [mesh.material].flat().filter(Boolean)) {
+          if (material.envMapIntensity !== undefined) this.reflections.set(material, material.envMapIntensity);
+        }
+      });
       this.lights = sceneLights(width, height, room);
       this.scene.add(this.group, this.lights);
       const bounds = new THREE.Box3().setFromObject(this.group);
+      this.modelBounds = bounds.clone();
+      this.modelCenter = bounds.getCenter(new THREE.Vector3());
       this.modelSize = bounds.getSize(new THREE.Vector3());
       const sphere = bounds.getBoundingSphere(new THREE.Sphere());
       this.modelRadius = sphere.radius + sphere.center.length();
       this.key = key;
     }
-    if (pixelWidth !== this.pixelWidth || pixelHeight !== this.pixelHeight) {
-      this.renderer.setSize(pixelWidth, pixelHeight, false);
-      this.pixelWidth = pixelWidth;
-      this.pixelHeight = pixelHeight;
+    const blend = room ? 1 : THREE.MathUtils.clamp(environmentBlend, 0, 1) * (1 - THREE.MathUtils.clamp((zoom - 1) / .15, 0, 1));
+    this.scene.environment = blend > 0 ? this.environment?.texture ?? null : null;
+    this.sourceArtwork.visible = blend < 1;
+    this.sourceArtwork.material.opacity = 1 - blend;
+    for (const [material, intensity] of this.reflections) material.envMapIntensity = intensity * blend;
+    const renderWidth = viewport?.width ?? pixelWidth;
+    const renderHeight = viewport?.height ?? pixelHeight;
+    if (renderWidth <= 0 || renderHeight <= 0) return;
+    if (renderWidth !== this.pixelWidth || renderHeight !== this.pixelHeight) {
+      this.renderer.setSize(renderWidth, renderHeight, false);
+      this.pixelWidth = renderWidth;
+      this.pixelHeight = renderHeight;
     }
-    this.camera.aspect = pixelWidth / pixelHeight;
-    this.camera.zoom = THREE.MathUtils.clamp(zoom, 1, 3);
+    this.camera.aspect = renderWidth / renderHeight;
+    this.camera.zoom = viewport ? Math.max(.1, zoom * pixelHeight / renderHeight) : THREE.MathUtils.clamp(zoom, 1, 3);
     const size = this.modelSize;
-    const fitHeight = Math.max(size.y, size.x / this.camera.aspect);
-    const distance = fitHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * 1.2 + size.z;
-    this.camera.position.set(0, 0, distance);
+    const fitHeight = Math.max(size.y, size.x / (pixelWidth / pixelHeight));
+    const distance = fitHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * (room ? 1.2 : 1.08) + size.z;
+    const halfHeight = distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
+    const pan = room ? 0 : 1 - 1 / this.camera.zoom;
+    const panX = viewport ? Math.max(0, size.x / 2 - halfHeight * this.camera.aspect / this.camera.zoom) : halfHeight * this.camera.aspect * pan;
+    const panY = viewport ? Math.max(0, size.y / 2 - halfHeight / this.camera.zoom) : halfHeight * pan;
+    this.camera.position.set(
+      viewport ? this.modelCenter.x : THREE.MathUtils.clamp(focus.x, -1, 1) * panX,
+      viewport ? this.modelCenter.y + (room ? -halfHeight / this.camera.zoom * .4 : 0) : THREE.MathUtils.clamp(focus.y, -1, 1) * panY,
+      viewport ? distance + this.modelCenter.z : distance,
+    );
     // Fit clipping planes to the entire model at any hover angle. A tiny near
     // plane and distant far plane lose precision on thin print surfaces.
     this.camera.near = Math.max(.01, distance - this.modelRadius * 1.25);
     this.camera.far = distance + this.modelRadius * 1.25;
+    this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.group.rotation.set(room ? 0 : THREE.MathUtils.degToRad(tilt.x), room ? 0 : THREE.MathUtils.degToRad(tilt.y), 0);
+    if (viewport && !room) this.inspectProjectedProduct(focus, renderWidth, renderHeight, zoom);
     this.renderer.render(this.scene, this.camera);
+  }
+
+  inspectProjectedProduct(focus, width, height, zoom) {
+    this.group.updateMatrixWorld(true);
+    this.camera.updateMatrixWorld(true);
+    const projected = new THREE.Box2();
+    const bounds = this.modelBounds;
+    for (const x of [bounds.min.x, bounds.max.x]) {
+      for (const y of [bounds.min.y, bounds.max.y]) {
+        for (const z of [bounds.min.z, bounds.max.z]) {
+          const point = new THREE.Vector3(x, y, z).applyMatrix4(this.group.matrixWorld).project(this.camera);
+          projected.expandByPoint(new THREE.Vector2((point.x + 1) * width / 2, (1 - point.y) * height / 2));
+        }
+      }
+    }
+    const size = projected.getSize(new THREE.Vector2());
+    const center = projected.getCenter(new THREE.Vector2());
+    // The reference allows white space around the inspected frame rather
+    // than locking its edges against the viewport. Keep at least 35% of
+    // each axis visible and ease the inspection range in as zoom increases.
+    const inspection = THREE.MathUtils.clamp((zoom - 1) / .5, 0, 1);
+    const rangeX = Math.max(0, (size.x - Math.min(size.x / zoom, width * .35)) / 2) * inspection;
+    const rangeY = Math.max(0, (size.y - Math.min(size.y / zoom, height * .35)) / 2) * inspection;
+    const x = (center.x - width / 2) * inspection + THREE.MathUtils.clamp(focus.x, -1, 1) * rangeX;
+    const y = (center.y - height / 2) * inspection - THREE.MathUtils.clamp(focus.y, -1, 1) * rangeY;
+    this.camera.setViewOffset(width, height, x, y, width, height);
   }
 
   clearModel() {

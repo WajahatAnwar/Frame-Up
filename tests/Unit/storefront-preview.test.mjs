@@ -2,7 +2,132 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 globalThis.HTMLElement = class {};
+globalThis.cancelAnimationFrame = () => {};
 const { default: Preview } = await import('../../public/frame-up-preview/preview-runtime.js');
+const { PreviewInteraction } = await import('../../public/frame-up-preview/preview-model.js');
+
+test('the runtime damps zoom through animation frames while retaining a fixed viewport', () => {
+  const preview = new Preview();
+  preview.interaction = new PreviewInteraction();
+  preview.mode = 'spatial';
+  preview.isConnected = true;
+  preview.hidden = false;
+  preview.reducedMotion = { matches: false };
+  preview.stage = { dataset: {}, getBoundingClientRect: () => ({ width: 600, height: 600 }) };
+  const draws = [];
+  preview.spatial = { update: (...args) => draws.push(args) };
+  preview.paintSpatial({}, {}, 300, 450);
+  const frames = [];
+  const originalFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => { frames.push(callback); return 1; };
+  try {
+    preview.setZoom(3);
+    assert.equal(preview.interaction.state.zoom, 1, 'wheel/click target must not jump the camera');
+    for (let i = 0; frames.length && i < 300; i++) frames.shift()(i * 1000 / 60);
+    assert.equal(preview.interaction.state.zoom, 3);
+    for (const draw of draws) assert.deepEqual(draw[8], { width: 600, height: 600 });
+    assert.ok(draws[1][6] > 1 && draws[1][6] < 3);
+  } finally { globalThis.requestAnimationFrame = originalFrame; }
+});
+
+test('clicking room artwork opens the spatial magnifier at the configured limit, and the next click restores normal zoom', () => {
+  const preview = new Preview();
+  preview.interaction = new PreviewInteraction({ maxZoom: 4 });
+  preview.mode = 'room';
+  preview.stage = { dataset: {}, getBoundingClientRect: () => ({ left: 0, top: 0, width: 600, height: 600 }) };
+  let pressed;
+  preview.toggle = { setAttribute: (name, value) => { pressed = value; } };
+  let renders = 0;
+  preview.render = () => { renders++; };
+  preview.animateTilt = () => {};
+  const event = { clientX: 500, clientY: 100, target: { closest: () => null } };
+
+  preview.toggleZoom(event);
+
+  assert.equal(preview.mode, 'spatial');
+  assert.equal(preview.stage.dataset.mode, 'spatial');
+  assert.equal(preview.toggle.textContent, 'View in a room');
+  assert.equal(pressed, 'false');
+  assert.equal(renders, 1);
+  assert.equal(preview.interaction.target.zoom, 4);
+  assert.equal(preview.interaction.state.zoom, 1, 'click magnification must remain damped');
+  assert.ok(preview.interaction.target.panX > 0);
+  preview.toggleZoom(event);
+  assert.equal(preview.interaction.target.zoom, 1);
+  assert.equal(preview.interaction.target.panX, 0);
+});
+
+test('exiting the inline magnifier returns smoothly to the cursor hover angle', () => {
+  const preview = new Preview();
+  preview.mode = 'spatial';
+  preview.zoom = 2;
+  preview.zoomFocus = { x: .5, y: -.5 };
+  preview.reducedMotion = { matches: false };
+  preview.stage = { dataset: {} };
+  preview.paintSpatial = () => {};
+  let animated = false;
+  preview.animateTilt = () => { animated = true; };
+  preview.toggleZoom({ target: { closest: () => null } });
+  assert.equal(preview.zoom, 1);
+  assert.deepEqual(preview.currentTilt, { x: 0, y: 0 });
+  assert.deepEqual(preview.targetTilt, { x: -3, y: 7.5 });
+  assert.equal(animated, true);
+});
+
+test('magnifier follows the cursor across the full preview area', () => {
+  const preview = new Preview();
+  preview.stage = { getBoundingClientRect: () => ({ left: 100, top: 50, width: 200, height: 400 }) };
+  preview.updateZoomFocus({ clientX: 250, clientY: 150 });
+  assert.deepEqual(preview.zoomFocus, { x: .5, y: .5 });
+  preview.updateZoomFocus({ clientX: 900, clientY: 900 });
+  assert.deepEqual(preview.zoomFocus, { x: 1, y: -1 });
+});
+
+test('magnification enlarges the retained canvas inside the stage and pans to its edges', () => {
+  const preview = new Preview();
+  preview.mode = 'spatial';
+  preview.zoom = 2;
+  preview.zoomFocus = { x: 1, y: -1 };
+  preview.hidden = false;
+  preview.currentTilt = { x: 5, y: 10 };
+  const style = {};
+  preview.stage = { getBoundingClientRect: () => ({ width: 400, height: 400 }), style: { setProperty: (key, value) => { style[key] = value; } } };
+  let draw;
+  preview.spatial = { update: (...args) => { draw = args; } };
+  preview.paintSpatial({}, {}, 300, 350);
+  assert.equal(style['--magnifier-width'], '600px');
+  assert.equal(style['--magnifier-height'], '700px');
+  assert.equal(style['--magnifier-left'], '100px');
+  assert.equal(style['--magnifier-top'], '350px');
+  assert.deepEqual(draw[3], { x: 0, y: 0 });
+  assert.equal(draw[4], 600);
+  assert.equal(draw[5], 700);
+  assert.equal(draw[6], 1);
+});
+
+test('leaving hover settles the retained canvas at exactly zero rotation', () => {
+  const preview = new Preview();
+  preview.mode = 'spatial';
+  preview.isConnected = true;
+  preview.reducedMotion = { matches: false };
+  preview.currentTilt = { x: 6, y: -15 };
+  preview.targetTilt = { x: 0, y: 0 };
+  const frames = [];
+  const originalFrame = globalThis.requestAnimationFrame;
+  globalThis.requestAnimationFrame = (callback) => { frames.push(callback); return 1; };
+  let painted;
+  preview.paintSpatial = () => { painted = { ...preview.currentTilt }; };
+  try {
+    preview.animateTilt();
+    let count = 0;
+    while (frames.length && count++ < 100) frames.shift()();
+    assert.deepEqual(painted, { x: 0, y: 0 });
+    assert.equal(preview.animation, null);
+    assert.equal(frames.length, 0);
+  } finally {
+    globalThis.requestAnimationFrame = originalFrame;
+  }
+});
 
 test('zoom controls bound magnification and redraw the existing preview', () => {
   const preview = new Preview();
@@ -33,8 +158,11 @@ test('clicking artwork toggles close-up zoom without affecting the room button',
   preview.toggleZoom(artwork);
   assert.equal(preview.zoom, 1);
   preview.mode = 'room';
+  preview.toggle = { setAttribute: () => {} };
+  preview.render = () => {};
   preview.toggleZoom(artwork);
-  assert.equal(preview.zoom, 1);
+  assert.equal(preview.mode, 'spatial');
+  assert.equal(preview.zoom, 2);
 });
 
 test('changing print type resets choices while leaving all theme sizes visible', () => {
@@ -233,4 +361,16 @@ test('a collapsed stage keeps the native image visible until a drawable layout i
   preview.values[1] = '4x6';
   preview.render();
   assert.doesNotMatch(preview.description.textContent, /unavailable/);
+  preview.interaction = new PreviewInteraction();
+  preview.reducedMotion = { matches: false };
+  preview.interaction.setZoom(3);
+  preview.interaction.pointer(1, 1);
+  preview.interaction.step(1, true);
+  preview.config.print_types[0].sizes.push({ option: '8x8', width: 8, height: 8 });
+  preview.values[1] = '8x8';
+  preview.render();
+  assert.equal(preview.interaction.state.zoom, 1);
+  assert.equal(preview.interaction.state.panX, 0);
+  assert.equal(painted.at(-1)[0].size.width, 8);
+  assert.deepEqual(painted.at(-1)[8], { width: 600, height: 600 });
 });

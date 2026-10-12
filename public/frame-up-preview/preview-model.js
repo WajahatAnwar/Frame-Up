@@ -1,5 +1,71 @@
 export const number = (value, fallback) => Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : fallback;
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
+
+export class PreviewInteraction {
+  constructor(values = {}) {
+    this.settings = {
+      tiltX: clamp(number(values.tiltX, 6), 0, 20), tiltY: clamp(number(values.tiltY, 12), 0, 25),
+      minZoom: clamp(number(values.minZoom, 1), .5, 1), maxZoom: clamp(number(values.maxZoom, 3), 1, 6),
+      zoomSpeed: clamp(number(values.zoomSpeed, .002), .0001, .01),
+      movement: clamp(number(values.movement, 1), 0, 1), damping: clamp(number(values.damping, 10), 1, 30),
+    };
+    this.reset();
+  }
+  reset() {
+    this.magnifierEnabled = false;
+    this.pointerInside = false;
+    this.magnifierZoom = this.settings.maxZoom;
+    this.environmentBlend = 0;
+    this.targetEnvironmentBlend = 0;
+    this.pointerPosition = { x: 0, y: 0 };
+    this.state = { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0 };
+    this.target = { ...this.state };
+  }
+  pointer(x, y) {
+    if (!this.pointerInside && this.magnifierEnabled) this.target.zoom = this.magnifierZoom;
+    this.pointerInside = true;
+    this.targetEnvironmentBlend = 1;
+    this.pointerPosition = { x: clamp(x, -1, 1), y: clamp(y, -1, 1) };
+    this.updateTargets();
+  }
+  leave() {
+    this.pointerInside = false;
+    this.pointerPosition = { x: 0, y: 0 };
+    this.targetEnvironmentBlend = 0;
+    if (this.magnifierEnabled) this.target.zoom = 1;
+    this.updateTargets();
+  }
+  toggleMagnifier() {
+    this.magnifierEnabled = !this.magnifierEnabled;
+    this.setZoom(this.magnifierEnabled ? this.magnifierZoom : 1);
+  }
+  setZoom(value) {
+    this.target.zoom = clamp(value, this.settings.minZoom, this.settings.maxZoom);
+    if (this.magnifierEnabled && this.target.zoom > 1) this.magnifierZoom = this.target.zoom;
+    this.updateTargets();
+  }
+  wheel(delta) { this.setZoom(this.target.zoom * Math.exp(-clamp(delta, -1000, 1000) * this.settings.zoomSpeed)); }
+  updateTargets() {
+    const zoomed = this.target.zoom > 1.001;
+    this.target.tiltX = zoomed ? 0 : this.pointerPosition.y * this.settings.tiltX;
+    this.target.tiltY = zoomed ? 0 : this.pointerPosition.x * this.settings.tiltY;
+    this.target.panX = zoomed ? this.pointerPosition.x * this.settings.movement : 0;
+    this.target.panY = zoomed ? this.pointerPosition.y * this.settings.movement : 0;
+  }
+  step(seconds, reducedMotion = false) {
+    const alpha = reducedMotion ? 1 : 1 - Math.exp(-this.settings.damping * clamp(seconds, 0, .05));
+    let moving = false;
+    this.environmentBlend += (this.targetEnvironmentBlend - this.environmentBlend) * alpha;
+    if (Math.abs(this.targetEnvironmentBlend - this.environmentBlend) < .0001) this.environmentBlend = this.targetEnvironmentBlend;
+    else moving = true;
+    for (const key of Object.keys(this.state)) {
+      this.state[key] += (this.target[key] - this.state[key]) * alpha;
+      if (Math.abs(this.target[key] - this.state[key]) < .0001) this.state[key] = this.target[key];
+      else moving = true;
+    }
+    return moving;
+  }
+}
 export const color = (value, fallback) => typeof value === 'string' && /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i.test(value) ? value : fallback;
 
 export function selection(config, names, values) {

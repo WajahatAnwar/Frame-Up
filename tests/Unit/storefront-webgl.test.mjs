@@ -45,8 +45,84 @@ for (const [width, height] of [[4, 6], [20, 30], [48, 96]]) {
       assert.ok(Math.abs(new THREE.Vector3(1, 0, 0).project(preview.camera).x - initialX * 2) < 1e-8);
       assert.equal(preview.group, group, 'zoom must retain the existing print geometry');
       assert.equal(resizes, 1);
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 2, { x: initialX, y: 0 });
+      preview.camera.updateMatrixWorld();
+      assert.ok(Math.abs(new THREE.Vector3(1, 0, 0).project(preview.camera).x - initialX) < 1e-8, 'magnification must keep the point under the cursor anchored');
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 1, { x: 1, y: 1 });
+      assert.equal(preview.camera.position.x, 0);
+      assert.equal(preview.camera.position.y, 0);
       preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 20);
       assert.equal(preview.camera.zoom, 3);
+      const originalGroup = preview.group;
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 1, { x: 0, y: 0 }, { width: 600, height: 600 });
+      const viewportResizes = resizes;
+      preview.camera.updateMatrixWorld();
+      const bounds = new THREE.Box3().setFromObject(preview.group);
+      for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) {
+        const point = new THREE.Vector3(x, y, bounds.max.z).project(preview.camera);
+        assert.ok(Math.abs(point.x) < 1 && Math.abs(point.y) < 1, 'the complete model must fit at default zoom');
+      }
+      for (const zoom of [1.2, 2, 3, 2, 1]) {
+        preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, zoom, { x: 1, y: -1 }, { width: 600, height: 600 });
+        assert.equal(preview.group, originalGroup);
+        assert.equal(resizes, viewportResizes, 'damped zoom must retain a fixed drawing buffer');
+        assert.ok(Number.isFinite(preview.camera.position.x));
+      }
+      const projectedEdges = () => {
+        preview.camera.updateMatrixWorld();
+        const points = [];
+        for (const x of [bounds.min.x, bounds.max.x]) for (const y of [bounds.min.y, bounds.max.y]) for (const z of [bounds.min.z, bounds.max.z]) {
+          points.push(new THREE.Vector3(x, y, z).project(preview.camera));
+        }
+        return { left: Math.min(...points.map((point) => point.x)), right: Math.max(...points.map((point) => point.x)), bottom: Math.min(...points.map((point) => point.y)), top: Math.max(...points.map((point) => point.y)) };
+      };
+      for (const focus of [{ x: -1, y: 1 }, { x: 1, y: -1 }]) {
+        preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 6, focus, { width: 600, height: 600 });
+        const edges = projectedEdges();
+        assert.ok(focus.x < 0 ? edges.left > -1 : edges.right < 1, 'inspection must expose the horizontal frame edge with surrounding white space');
+        assert.ok(focus.y > 0 ? edges.top < 1 : edges.bottom > -1, 'inspection must expose the vertical frame edge with surrounding white space');
+        assert.ok(edges.right > -1 && edges.left < 1 && edges.top > -1 && edges.bottom < 1, 'inspection must keep part of the complete product visible');
+        assert.equal(preview.camera.position.x, preview.modelCenter.x, 'inspection must not orbit or translate the camera sideways');
+        assert.equal(preview.group, originalGroup);
+      }
+      const closeOffset = Math.abs(preview.camera.view.offsetY);
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 3, { x: 1, y: -1 }, { width: 600, height: 600 });
+      assert.ok(Math.abs(preview.camera.view.offsetY) < closeOffset, 'inspection range must increase with zoom');
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 1, { x: 1, y: -1 }, { width: 600, height: 600 });
+      const restored = projectedEdges();
+      assert.ok(restored.left > -1 && restored.right < 1 && restored.bottom > -1 && restored.top < 1, 'zooming out must restore the complete product');
+      assert.equal(preview.camera.view.offsetX, 0);
+      assert.equal(preview.camera.view.offsetY, 0);
+      assert.equal(resizes, viewportResizes);
+      const imageColor = image.material.color.clone();
+      const map = image.material.map;
+      const reflection = image.material.envMapIntensity;
+      const lights = preview.lights.children.filter((light) => light.isLight);
+      const intensities = lights.map((light) => light.intensity);
+      preview.environment = { texture: new THREE.Texture() };
+      for (const blend of [0, .5, 1, 0]) {
+        preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 1, { x: 0, y: 0 }, { width: 600, height: 600 }, blend);
+        assert.equal(preview.scene.environment, blend > 0 ? preview.environment.texture : null);
+        assert.equal(image.material.envMapIntensity, reflection * blend);
+        assert.equal(preview.sourceArtwork.visible, blend < 1);
+        assert.equal(preview.sourceArtwork.material.opacity, 1 - blend);
+        assert.equal(preview.sourceArtwork.material.map, map, 'unlit artwork must preserve the same image and crop');
+        assert.equal(preview.sourceArtwork.material.toneMapped, false);
+        assert.equal(preview.sourceArtwork.material.isMeshBasicMaterial, true);
+        assert.equal(preview.sourceArtwork.material.color.getHexString(), 'ffffff', 'source artwork must have no tint or brightness multiplier');
+        assert.equal(image.material.map, map);
+        assert.ok(image.material.color.equals(imageColor));
+      }
+      preview.environment.texture.dispose();
+      for (const [tilt, zoom] of [[{ x: 0, y: 0 }, 1], [{ x: 6, y: -12 }, 1], [{ x: 0, y: 0 }, 3], [{ x: 0, y: 0 }, 1]]) {
+        preview.update(selection, view, false, tilt, 300, 450, zoom, { x: 0, y: 0 }, { width: 600, height: 600 });
+        assert.equal(image.material.envMapIntensity, zoom > 1 ? 0 : reflection, 'magnification disables reflective hover effects');
+        assert.equal(preview.scene.environment, zoom > 1 ? null : preview.environment.texture);
+        assert.deepEqual(lights.map((light) => light.intensity), intensities);
+        assert.ok(image.material.color.equals(imageColor));
+        assert.equal(image.material.map, map);
+        assert.equal(preview.group, originalGroup);
+      }
     } finally {
       disposePrint(preview.group, [preview.artwork]);
       preview.artwork.dispose();

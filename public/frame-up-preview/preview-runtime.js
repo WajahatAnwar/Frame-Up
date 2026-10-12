@@ -1,4 +1,4 @@
-import * as model from './preview-model.js';
+import * as model from './preview-model.js?v=29';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -82,11 +82,16 @@ export default class FrameUpPreview extends HTMLElement {
     this.targetTilt = { ...this.currentTilt };
     this.reducedMotion = matchMedia('(prefers-reduced-motion: reduce)');
     this.zoom = 1;
+    this.interaction = new model.PreviewInteraction(this.dataset);
     this.listen(this.stage, 'wheel', (event) => {
-      if (this.mode !== 'spatial') return;
+      if (event.target.closest('button, a')) return;
       event.preventDefault();
+      this.openSpatialCloseUp();
+      this.updateZoomFocus(event);
       const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? this.stage.clientHeight : 1);
-      this.setZoom(this.zoom * Math.exp(-delta * .002));
+      this.interaction.wheel(delta);
+      this.zoom = this.interaction.target.zoom;
+      this.animateTilt();
     }, { passive: false });
     const touchDistance = (touches) => Math.hypot(touches[0].clientX - touches[1].clientX, touches[0].clientY - touches[1].clientY);
     this.listen(this.stage, 'touchstart', (event) => {
@@ -103,26 +108,25 @@ export default class FrameUpPreview extends HTMLElement {
     this.listen(this.stage, 'keydown', (event) => {
       if (event.target !== this.stage || this.mode !== 'spatial') return;
       if (['Enter', ' '].includes(event.key)) { event.preventDefault(); this.toggleZoom(event); }
-      else if (event.key === 'Escape') this.setZoom(1);
+      else if (event.key === 'Escape') { this.interaction.magnifierEnabled = false; this.setZoom(1); }
     });
     // Reset dependent controls before the theme reads its selected option IDs.
     this.listen(this.scope, 'change', (event) => this.resetPrintTypeOptions(event), { capture: true });
-    this.listen(this.stage, 'pointermove', (event) => {
-      if (this.mode !== 'spatial' || event.pointerType === 'touch' || this.reducedMotion.matches) return;
-      const rect = this.stage.getBoundingClientRect();
-      this.targetTilt = {
-        x: -clamp((event.clientY - rect.top) / rect.height * 2 - 1, -1, 1) * 6,
-        y: clamp((event.clientX - rect.left) / rect.width * 2 - 1, -1, 1) * 15,
-      };
+    for (const name of ['pointerenter', 'pointermove']) this.listen(this.stage, name, (event) => {
+      if (this.mode !== 'spatial' || event.pointerType === 'touch') return;
+      this.updateZoomFocus(event);
+      this.zoom = this.interaction.target.zoom;
       this.animateTilt();
     });
-    this.listen(this.stage, 'pointerleave', () => { this.targetTilt = { x: 0, y: 0 }; this.animateTilt(); });
-    this.listen(this.stage, 'pointercancel', () => { this.targetTilt = { x: 0, y: 0 }; this.animateTilt(); });
+    for (const name of ['pointerleave', 'pointercancel']) this.listen(this.stage, name, () => {
+      this.interaction.leave(); this.zoom = this.interaction.target.zoom; this.animateTilt();
+    });
     this.listen(this.toggle, 'click', () => {
       this.mode = this.mode === 'spatial' ? 'room' : 'spatial';
       this.stage.dataset.mode = this.mode;
       this.toggle.textContent = this.mode === 'room' ? 'View close up' : 'View in a room';
       this.toggle.setAttribute('aria-pressed', String(this.mode === 'room'));
+      this.interaction.reset();
       this.setZoom(1);
       this.render();
     });
@@ -171,14 +175,57 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   setZoom(value) {
+    if (this.interaction) {
+      this.interaction.setZoom(value);
+      this.zoom = this.interaction.target.zoom;
+      this.animateTilt();
+      return;
+    }
     this.zoom = clamp(number(value, 1), 1, 3);
     if (this.stage) this.stage.dataset.zoomed = String(this.zoom > 1);
     this.paintSpatial();
   }
 
   toggleZoom(event) {
-    if (this.mode !== 'spatial' || event.target.closest('button, a')) return;
-    this.setZoom(this.zoom > 1 ? 1 : 2);
+    if (event.target.closest('button, a')) return;
+    this.openSpatialCloseUp();
+    this.updateZoomFocus(event);
+    if (this.interaction) {
+      this.interaction.toggleMagnifier();
+      this.zoom = this.interaction.target.zoom;
+      this.animateTilt();
+      return;
+    }
+    const zoomingOut = this.zoom > 1;
+    cancelAnimationFrame(this.animation);
+    this.animation = null;
+    this.currentTilt = { x: 0, y: 0 };
+    this.targetTilt = { x: 0, y: 0 };
+    this.setZoom(zoomingOut ? 1 : 2);
+    if (zoomingOut && this.zoomFocus && this.reducedMotion && !this.reducedMotion.matches) {
+      this.targetTilt = { x: this.zoomFocus.y * 6, y: this.zoomFocus.x * 15 };
+      this.animateTilt();
+    }
+  }
+
+  openSpatialCloseUp() {
+    if (this.mode !== 'room') return;
+    this.mode = 'spatial';
+    this.stage.dataset.mode = 'spatial';
+    this.toggle.textContent = 'View in a room';
+    this.toggle.setAttribute('aria-pressed', 'false');
+    this.render();
+  }
+
+  updateZoomFocus(event) {
+    if (!Number.isFinite(event.clientX) || !Number.isFinite(event.clientY)) return;
+    const rect = this.stage.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+    this.zoomFocus = {
+      x: clamp((event.clientX - rect.left) / rect.width * 2 - 1, -1, 1),
+      y: clamp(1 - (event.clientY - rect.top) / rect.height * 2, -1, 1),
+    };
+    this.interaction?.pointer(this.zoomFocus.x, this.zoomFocus.y);
   }
 
   optionName(control) {
@@ -301,6 +348,11 @@ export default class FrameUpPreview extends HTMLElement {
     if (!selection) { this.restoreGallery(); return; }
     const appearance = FrameUpPreview.appearance(selection);
     if (!appearance) { this.restoreGallery(); return; }
+    const selectionKey = JSON.stringify([selection.print.surface.id, selection.size.option, selection.mount.id]);
+    if (this.interaction && this.selectionKey && selectionKey !== this.selectionKey) {
+      this.interaction.reset(); this.zoom = 1;
+    }
+    this.selectionKey = selectionKey;
     this.hidden = false;
     this.gallery.setAttribute('data-frame-up-media-host', '');
     const width = number(selection.size.width, this.product.imageWidth);
@@ -310,10 +362,10 @@ export default class FrameUpPreview extends HTMLElement {
     if (rect.width <= 0 || rect.height <= 0) { this.restoreGallery(); return; }
     const aspect = width / height;
     const room = this.mode === 'room';
-    const spatialScale = clamp(Math.max(width, height) / 24, .55, 1);
+    const spatialScale = clamp(Math.max(width, height) / 24, .85, 1);
     let objectWidth = room ? rect.width * width / number(this.dataset.roomWidth, 120) : rect.width * .69 * spatialScale;
     let objectHeight = objectWidth / aspect;
-    const maxHeight = rect.height * (room ? .48 : .72);
+    const maxHeight = rect.height * (room ? .48 : .78);
     if (objectHeight > maxHeight) { objectHeight = maxHeight; objectWidth = objectHeight * aspect; }
     const pxPerInch = objectWidth / width;
     this.stage.dataset.material = appearance.kind;
@@ -335,14 +387,31 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   animateTilt() {
+    if (this.interaction) {
+      if (this.animation || this.mode !== 'spatial') return;
+      let previous;
+      const tick = (time) => {
+        this.animation = null;
+        if (!this.isConnected || this.mode !== 'spatial') return;
+        const dt = previous === undefined ? 1 / 60 : (time - previous) / 1000;
+        previous = time;
+        const moving = this.interaction.step(dt, this.reducedMotion.matches);
+        this.paintSpatial();
+        if (moving) this.animation = requestAnimationFrame(tick);
+      };
+      this.animation = requestAnimationFrame(tick);
+      return;
+    }
     if (this.animation || this.mode !== 'spatial' || this.reducedMotion.matches) return;
     const tick = () => {
       this.animation = null;
       if (!this.isConnected || this.mode !== 'spatial' || this.reducedMotion.matches) return;
       this.currentTilt.x += (this.targetTilt.x - this.currentTilt.x) * .12;
       this.currentTilt.y += (this.targetTilt.y - this.currentTilt.y) * .12;
+      const moving = Math.abs(this.targetTilt.x - this.currentTilt.x) + Math.abs(this.targetTilt.y - this.currentTilt.y) > .02;
+      if (!moving) this.currentTilt = { ...this.targetTilt };
       this.paintSpatial();
-      if (Math.abs(this.targetTilt.x - this.currentTilt.x) + Math.abs(this.targetTilt.y - this.currentTilt.y) > .02) {
+      if (moving) {
         this.animation = requestAnimationFrame(tick);
       }
     };
@@ -359,6 +428,28 @@ export default class FrameUpPreview extends HTMLElement {
     if (selection) this.paint = { selection, appearance, width, height };
     if (!this.paint || !this.spatial || this.hidden) return;
     const value = this.paint;
-    this.spatial.update(value.selection, value.appearance, this.mode === 'room', this.reducedMotion?.matches ? { x: 0, y: 0 } : this.currentTilt, value.width, value.height, this.zoom ?? 1);
+    if (this.interaction) {
+      const state = this.interaction.state;
+      const room = this.mode === 'room';
+      const rect = this.stage.getBoundingClientRect();
+      this.stage.dataset.zoomed = String(!room && state.zoom > 1.001);
+      this.spatial.update(value.selection, value.appearance, room,
+        this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },
+        value.width, value.height, room ? 1 : state.zoom, { x: state.panX, y: state.panY },
+        { width: rect.width, height: rect.height }, room ? 1 : this.interaction.environmentBlend);
+      return;
+    }
+    const zoom = this.mode === 'room' ? 1 : this.zoom ?? 1;
+    const magnifiedWidth = value.width * zoom;
+    const magnifiedHeight = value.height * zoom;
+    if (zoom > 1) {
+      const rect = this.stage.getBoundingClientRect();
+      const focus = this.zoomFocus ?? { x: 0, y: 0 };
+      this.stage.style.setProperty('--magnifier-width', `${magnifiedWidth}px`);
+      this.stage.style.setProperty('--magnifier-height', `${magnifiedHeight}px`);
+      this.stage.style.setProperty('--magnifier-left', `${rect.width / 2 - focus.x * Math.max(0, magnifiedWidth - rect.width) / 2}px`);
+      this.stage.style.setProperty('--magnifier-top', `${rect.height / 2 - focus.y * Math.max(0, magnifiedHeight - rect.height) / 2}px`);
+    }
+    this.spatial.update(value.selection, value.appearance, this.mode === 'room', zoom > 1 || this.reducedMotion?.matches ? { x: 0, y: 0 } : this.currentTilt, magnifiedWidth, magnifiedHeight, 1);
   }
 }

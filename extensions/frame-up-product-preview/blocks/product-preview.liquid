@@ -5,8 +5,15 @@
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
     data-media-selector="{{ block.settings.media_selector | escape }}"
     data-room-width="{{ block.settings.room_width }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=12' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=12' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=29' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=29' | escape }}"
+    data-tilt-x="{{ block.settings.tilt_x }}"
+    data-tilt-y="{{ block.settings.tilt_y }}"
+    data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
+    data-max-zoom="{{ block.settings.max_zoom | divided_by: 100.0 }}"
+    data-zoom-speed="{{ block.settings.zoom_speed | divided_by: 10000.0 }}"
+    data-movement="{{ block.settings.movement_strength | divided_by: 100.0 }}"
+    data-damping="{{ block.settings.damping }}"
     data-environment-url="{{ preview_assets | append: 'lebombo_1k.hdr' | escape }}"
     data-surface-texture-url="{{ preview_assets | append: 'concrete-light.jpg' | escape }}"
   >
@@ -67,14 +74,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=12`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=29`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=12`;
+        script.src = `${proxy}/assets/product-preview.js?v=29`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {
@@ -90,6 +97,13 @@
   "target": "body",
   "enabled_on": { "templates": ["product"] },
   "settings": [
+    { "type": "range", "id": "tilt_x", "label": "Vertical tilt limit", "min": 0, "max": 20, "step": 1, "default": 6, "unit": "°" },
+    { "type": "range", "id": "tilt_y", "label": "Horizontal tilt limit", "min": 0, "max": 25, "step": 1, "default": 12, "unit": "°" },
+    { "type": "range", "id": "min_zoom", "label": "Minimum zoom", "min": 50, "max": 100, "step": 5, "default": 100, "unit": "%" },
+    { "type": "range", "id": "max_zoom", "label": "Maximum zoom", "min": 100, "max": 600, "step": 25, "default": 300, "unit": "%" },
+    { "type": "range", "id": "zoom_speed", "label": "Wheel zoom speed", "min": 1, "max": 50, "step": 1, "default": 20 },
+    { "type": "range", "id": "movement_strength", "label": "Magnifier movement", "min": 0, "max": 100, "step": 5, "default": 100, "unit": "%" },
+    { "type": "range", "id": "damping", "label": "Interaction responsiveness", "min": 1, "max": 30, "step": 1, "default": 10 },
     { "type": "paragraph", "content": "Shows a spatial artwork preview only on products successfully linked to a Frame Up configuration. Your theme controls sizes, variants and checkout." },
     { "type": "image_picker", "id": "room_image", "label": "Room background" },
     { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 120 },
