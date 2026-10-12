@@ -101,24 +101,17 @@ for (const [width, height] of [[4, 6], [20, 30], [48, 96]]) {
       const intensities = lights.map((light) => light.intensity);
       preview.environment = { texture: new THREE.Texture() };
       for (const zoom of [1, 1.075, 3, 1]) {
-        const blend = zoom === 1 ? 1 : zoom === 3 ? 0 : .5;
         preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, zoom, { x: 0, y: 0 }, { width: 600, height: 600 });
-        assert.equal(preview.scene.environment, blend > 0 ? preview.environment.texture : null);
-        assert.ok(Math.abs(image.material.envMapIntensity - reflection * blend) < 1e-8);
-        assert.equal(preview.sourceArtwork.visible, blend < 1);
-        assert.ok(Math.abs(preview.sourceArtwork.material.opacity - (1 - blend)) < 1e-8);
-        assert.equal(preview.sourceArtwork.material.map, map, 'unlit artwork must preserve the same image and crop');
-        assert.equal(preview.sourceArtwork.material.toneMapped, false);
-        assert.equal(preview.sourceArtwork.material.isMeshBasicMaterial, true);
-        assert.equal(preview.sourceArtwork.material.color.getHexString(), 'ffffff', 'source artwork must have no tint or brightness multiplier');
+        assert.equal(preview.scene.environment, preview.environment.texture);
+        assert.equal(image.material.envMapIntensity, reflection);
         assert.equal(image.material.map, map);
         assert.ok(image.material.color.equals(imageColor));
       }
       preview.environment.texture.dispose();
       for (const [tilt, zoom] of [[{ x: 0, y: 0 }, 1], [{ x: 6, y: -12 }, 1], [{ x: 0, y: 0 }, 3], [{ x: 0, y: 0 }, 1]]) {
         preview.update(selection, view, false, tilt, 300, 450, zoom, { x: 0, y: 0 }, { width: 600, height: 600 });
-        assert.equal(image.material.envMapIntensity, zoom > 1 ? 0 : reflection, 'magnification disables reflective hover effects');
-        assert.equal(preview.scene.environment, zoom > 1 ? null : preview.environment.texture);
+        assert.equal(image.material.envMapIntensity, reflection, 'magnification must retain configured HDR reflections');
+        assert.equal(preview.scene.environment, preview.environment.texture);
         assert.deepEqual(lights.map((light) => light.intensity), intensities);
         assert.ok(image.material.color.equals(imageColor));
         assert.equal(image.material.map, map);

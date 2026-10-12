@@ -31,7 +31,7 @@ export default class SpatialPreview {
     const pmrem = new THREE.PMREMGenerator(this.renderer);
     this.environment = pmrem.fromEquirectangular(this.hdr);
     pmrem.dispose();
-    this.scene.environment = null;
+    this.scene.environment = this.environment.texture;
     // The HDR illuminates the print, but is not the visible background.
     const textureLoader = new THREE.TextureLoader();
     this.artwork = await textureLoader.loadAsync(imageUrl);
@@ -53,21 +53,6 @@ export default class SpatialPreview {
     if (key !== this.key) {
       this.clearModel();
       this.group = buildPrint(width, height, view, this.artwork, this.surfaceTexture);
-      const artwork = this.group.children.find((mesh) => mesh.userData.role === 'artwork');
-      this.sourceArtwork = new THREE.Mesh(artwork.geometry.clone(), new THREE.MeshBasicMaterial({
-        map: artwork.material.map, color: '#ffffff', toneMapped: false,
-        transparent: true, depthWrite: false,
-        polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2,
-      }));
-      this.sourceArtwork.position.copy(artwork.position);
-      this.sourceArtwork.renderOrder = 2;
-      this.group.add(this.sourceArtwork);
-      this.reflections = new Map();
-      this.group.traverse((mesh) => {
-        for (const material of [mesh.material].flat().filter(Boolean)) {
-          if (material.envMapIntensity !== undefined) this.reflections.set(material, material.envMapIntensity);
-        }
-      });
       this.lights = sceneLights(width, height, room);
       this.scene.add(this.group, this.lights);
       const bounds = new THREE.Box3().setFromObject(this.group);
@@ -78,11 +63,7 @@ export default class SpatialPreview {
       this.modelRadius = sphere.radius + sphere.center.length();
       this.key = key;
     }
-    const blend = room ? 1 : 1 - THREE.MathUtils.clamp((zoom - 1) / .15, 0, 1);
-    this.scene.environment = blend > 0 ? this.environment?.texture ?? null : null;
-    this.sourceArtwork.visible = blend < 1;
-    this.sourceArtwork.material.opacity = 1 - blend;
-    for (const [material, intensity] of this.reflections) material.envMapIntensity = intensity * blend;
+    this.scene.environment = this.environment?.texture ?? null;
     const renderWidth = viewport?.width ?? pixelWidth;
     const renderHeight = viewport?.height ?? pixelHeight;
     if (renderWidth <= 0 || renderHeight <= 0) return;
