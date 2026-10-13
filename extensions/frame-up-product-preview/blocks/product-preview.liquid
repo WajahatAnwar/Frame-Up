@@ -4,9 +4,13 @@
     hidden
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
     data-media-selector="{{ block.settings.media_selector | escape }}"
-    data-room-width="{{ block.settings.room_width }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=37' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=37' | escape }}"
+    data-room-width="{% if block.settings.room_image != blank %}{{ block.settings.room_width }}{% else %}{{ block.settings.procedural_room_width | default: 65 }}{% endif %}"
+    data-room-scene="image"
+    data-room-scale="{{ block.settings.room_scale | default: 175 | divided_by: 100.0 }}"
+    data-room-center-x="{{ block.settings.room_center_x }}"
+    data-room-center-y="{{ block.settings.room_center_y }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=44' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=44' | escape }}"
     data-tilt-x="{{ block.settings.tilt_x }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
@@ -34,7 +38,7 @@
       {% if block.settings.room_image != blank %}
         {{ block.settings.room_image | image_url: width: 1800 | image_tag: class: 'frame-up-room', alt: 'Room setting', loading: 'lazy' }}
       {% else %}
-        <img class="frame-up-room" src="{{ preview_assets | append: 'room-living.jpg' | escape }}" alt="Room setting" width="1979" height="1321" loading="lazy">
+        <img class="frame-up-room" src="{{ preview_assets | append: 'room-console.jpg' | escape }}" alt="Room setting" width="1254" height="1254" loading="lazy">
       {% endif %}
       <div class="frame-up-object" aria-label="Framed artwork">
         <div class="frame-up-back"></div>
@@ -74,14 +78,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=37`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=44`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=37`;
+        script.src = `${proxy}/assets/product-preview.js?v=44`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {
@@ -106,7 +110,11 @@
     { "type": "range", "id": "damping", "label": "Interaction responsiveness", "min": 1, "max": 30, "step": 1, "default": 10 },
     { "type": "paragraph", "content": "Shows a spatial artwork preview only on products successfully linked to a Frame Up configuration. Your theme controls sizes, variants and checkout." },
     { "type": "image_picker", "id": "room_image", "label": "Room background" },
-    { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 120 },
+    { "type": "range", "id": "procedural_room_width", "label": "Default room wall width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
+    { "type": "range", "id": "room_scale", "label": "Artwork scale in room", "unit": "%", "min": 75, "max": 200, "step": 5, "default": 175 },
+    { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
+    { "type": "range", "id": "room_center_x", "label": "Artwork horizontal position", "unit": "%", "min": 10, "max": 90, "step": 1, "default": 47 },
+    { "type": "range", "id": "room_center_y", "label": "Artwork vertical position", "unit": "%", "min": 10, "max": 70, "step": 1, "default": 38 },
     { "type": "text", "id": "proxy_path", "label": "App proxy path", "default": "/apps/frame-up", "info": "Match the app proxy prefix and subpath configured for this shop." },
     { "type": "text", "id": "media_selector", "label": "Product media CSS selector", "info": "Optional for custom themes. Leave empty to detect the product gallery automatically." }
   ]

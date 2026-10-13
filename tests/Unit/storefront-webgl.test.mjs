@@ -4,6 +4,117 @@ import * as THREE from 'three';
 import SpatialPreview from '../../resources/js/StorefrontPreview/preview-webgl.js';
 import { disposePrint } from '../../resources/js/StorefrontPreview/print-model.js';
 import { appearance } from '../../public/frame-up-preview/preview-model.js';
+import { buildRoomContactShadow } from '../../resources/js/StorefrontPreview/room-scene.js';
+
+test('room contact shadow follows the complete product bounds with transparent soft edges', () => {
+  const bounds = new THREE.Box3(new THREE.Vector3(-12, -18, -.5), new THREE.Vector3(12, 18, .5));
+  const shadow = buildRoomContactShadow(bounds);
+  try {
+    assert.ok(Math.abs(shadow.geometry.parameters.width - 28.8) < 1e-8);
+    assert.ok(shadow.position.x > 0 && shadow.position.y < 0, 'shadow falls slightly right and below the product');
+    assert.ok(shadow.position.z < bounds.min.z && shadow.position.z > bounds.min.z - .06, 'shadow sits between the product and wall');
+    const { data, width } = shadow.material.map.image;
+    assert.equal(data[(64 * width + 64) * 4 + 3], 54);
+    assert.equal(data[3], 0);
+    assert.equal(shadow.material.depthWrite, false);
+    assert.equal(shadow.material.toneMapped, false);
+  } finally {
+    shadow.geometry.dispose();
+    shadow.material.map.dispose();
+    shadow.material.dispose();
+  }
+});
+
+test('procedural room keeps the complete product separate from fixed wall, console and vase geometry', () => {
+  const preview = Object.create(SpatialPreview.prototype);
+  preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });
+  preview.scene = new THREE.Scene();
+  preview.camera = new THREE.PerspectiveCamera(50, 1, .01, 1000);
+  preview.renderer = { setSize: () => {}, render: () => {} };
+  const selection = {
+    print: { surface: { id: 1, settings: { material_type: 'Metal', metal_thickness: .02 } } },
+    size: { option: '4x6', width: 4, height: 6 },
+    mount: { id: 2, settings: { selectHangerType: 'floating-system' } },
+  };
+  const view = appearance(selection);
+  try {
+    preview.update(selection, view, true, { x: 6, y: 12 }, 40, 60, 1, { x: 1, y: 1 }, { width: 600, height: 600 });
+    const room = preview.roomScene;
+    const contactShadow = preview.roomContactShadow;
+    assert.equal(contactShadow.parent, preview.scene);
+    assert.ok(room.children.some((mesh) => mesh.geometry.type === 'LatheGeometry'), 'room includes the vase');
+    assert.ok(room.children.some((mesh) => mesh.geometry.type === 'TubeGeometry'), 'room includes branches');
+    assert.equal(preview.group.parent, preview.scene, 'product must remain independent of room furniture');
+    assert.equal(preview.wallShadow.visible, false, 'the physical wall receives shadows without a second shadow layer');
+    const bounds = new THREE.Box3().setFromObject(room);
+    assert.equal(preview.camera.zoom, 1, 'room camera must not use the clamped product magnifier zoom');
+    assert.equal(room.scale.x, room.scale.z, 'room furniture must not be flattened to compensate for camera distance');
+    assert.ok(preview.camera.position.z - bounds.max.z > preview.camera.near, 'furniture must stay in front of the near plane even for small prints');
+    assert.ok(preview.camera.position.z - bounds.min.z < preview.camera.far, 'room wall must remain inside the far plane');
+    const position = room.position.clone();
+    preview.update(selection, view, true, { x: -6, y: -12 }, 40, 60, 1, { x: -1, y: -1 }, { width: 600, height: 600 });
+    assert.equal(preview.roomScene, room);
+    assert.ok(room.position.equals(position), 'pointer movement must not move room furniture');
+    preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, 3, { x: 1, y: -1 }, { width: 600, height: 600 });
+    assert.equal(preview.roomScene, null);
+    assert.equal(room.parent, null, 'magnifier contains only the product');
+    assert.equal(contactShadow.parent, null, 'magnifier must remove the room contact shadow');
+  } finally {
+    preview.clearModel();
+    preview.artwork.dispose();
+  }
+});
+
+test('room artwork fits the requested size and stays anchored on the wall without hover or zoom', () => {
+  const selection = {
+    print: { surface: { id: 1, settings: { material_type: 'Metal', metal_thickness: .02 } } },
+    size: { option: '24x36', width: 24, height: 36 },
+    mount: { id: 2, settings: { selectHangerType: 'floating-system' } },
+  };
+  const preview = Object.create(SpatialPreview.prototype);
+  preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });
+  preview.scene = new THREE.Scene();
+  preview.camera = new THREE.PerspectiveCamera(50, 1, .01, 1000);
+  preview.renderer = { setSize: () => {}, render: () => {} };
+  const view = appearance(selection);
+  preview.roomTexture = new THREE.Texture({ width: 1200, height: 800 });
+
+  try {
+    preview.update(selection, view, true, { x: 6, y: 12 }, 240, 360, 1, { x: 1, y: -1 }, { width: 600, height: 600, centerX: .47, centerY: .38 });
+    preview.camera.updateMatrixWorld();
+    const center = preview.modelCenter.clone().project(preview.camera);
+    assert.ok(Math.abs(center.x - (-.06)) < 1e-8);
+    assert.ok(Math.abs(center.y - .24) < 1e-8);
+    assert.equal(preview.group.rotation.x, 0);
+    assert.equal(preview.group.rotation.y, 0);
+    assert.equal(preview.scene.background, preview.roomTexture);
+    assert.ok(Math.abs(preview.roomTexture.repeat.x - 2 / 3) < 1e-8);
+    assert.equal(preview.roomTexture.repeat.y, 1);
+    assert.equal(preview.wallShadow.receiveShadow, true);
+    assert.equal(preview.wallShadow.visible, false, 'photo room uses only the soft contact shadow, without the hard accessory silhouette');
+    const top = new THREE.Vector3(0, 18, .01).project(preview.camera);
+    const bottom = new THREE.Vector3(0, -18, .01).project(preview.camera);
+    assert.ok(Math.abs((top.y - bottom.y) * 300 - 360) < 18, 'room fitting must retain the requested artwork size within depth padding');
+
+    preview.update(selection, view, true, { x: -6, y: -12 }, 240, 360, 1, { x: -1, y: 1 }, { width: 600, height: 600, centerX: .6, centerY: .3 });
+    preview.camera.updateMatrixWorld();
+    const moved = preview.modelCenter.clone().project(preview.camera);
+    assert.ok(Math.abs(moved.x - .2) < 1e-8);
+    assert.ok(Math.abs(moved.y - .4) < 1e-8);
+    assert.equal(preview.camera.view?.enabled ?? false, false, 'room view must not retain magnifier inspection offsets');
+
+    const wall = preview.wallShadow;
+    preview.update(selection, view, false, { x: 6, y: 12 }, 240, 360, 1, { x: 0, y: 0 }, { width: 600, height: 600 });
+    assert.equal(preview.scene.background, null, 'close-up must remove the room background');
+    assert.equal(preview.wallShadow, null);
+    assert.equal(wall.parent, null);
+    assert.ok(preview.group.rotation.y > 0, 'returning to close-up must restore 3D hover');
+  } finally {
+    preview.clearModel();
+    preview.roomTexture.dispose();
+    preview.artwork.dispose();
+  }
+});
 
 for (const [width, height] of [[4, 6], [20, 30], [48, 96]]) {
   test(`thin ${width}x${height} print keeps distinct surface depth and remains inside clipping planes during hover`, () => {

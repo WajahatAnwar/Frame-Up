@@ -17,6 +17,7 @@ class StorefrontPreviewAssetController extends Controller
             'lebombo_1k.hdr' => 'application/octet-stream',
             'concrete-light.jpg' => 'image/jpeg',
             'room-living.jpg' => 'image/jpeg',
+            'room-console.jpg' => 'image/jpeg',
         ];
         abort_unless(isset($types[$filename]), 404);
 

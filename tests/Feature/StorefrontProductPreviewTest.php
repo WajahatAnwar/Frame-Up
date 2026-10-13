@@ -68,6 +68,7 @@ class StorefrontProductPreviewTest extends TestCase
         $this->assertSame(public_path('frame-up-preview/lebombo_1k.hdr'), $hdr->baseResponse->getFile()->getPathname());
         $this->get('/storefront/assets/product-preview.css')->assertOk()->assertHeader('Content-Type', 'text/css; charset=utf-8');
         $this->get('/storefront/assets/room-living.jpg')->assertOk()->assertHeader('Content-Type', 'image/jpeg');
+        $this->get('/storefront/assets/room-console.jpg')->assertOk()->assertHeader('Content-Type', 'image/jpeg');
     }
 
     public function test_preview_asset_route_cannot_expose_other_public_files_or_php(): void

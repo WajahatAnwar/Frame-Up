@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=37';
+import * as model from './preview-model.js?v=44';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -26,6 +26,7 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   dispose() {
+    this.clearViewTransition();
     this.controller?.abort();
     this.cleanups?.forEach((cleanup) => cleanup());
     cancelAnimationFrame(this.animation);
@@ -60,6 +61,8 @@ export default class FrameUpPreview extends HTMLElement {
     if (!result.enabled || result.data?.product_id !== `gid://shopify/Product/${this.product.id}`) return;
     this.config = result.data;
     this.stage = this.querySelector('.frame-up-stage');
+    this.roomImage = this.querySelector('.frame-up-room');
+    if (this.roomImage) this.listen(this.roomImage, 'load', () => { if (this.gallery) this.render(); });
     this.toggle = this.querySelector('.frame-up-view-toggle');
     this.description = this.querySelector('[data-frame-up-description]');
     this.variant = this.product.selectedVariant;
@@ -68,6 +71,15 @@ export default class FrameUpPreview extends HTMLElement {
     this.spatial = new SpatialPreview(this.querySelector('.frame-up-object'));
     const imageUrl = this.product.image.startsWith('//') ? `https:${this.product.image}` : this.product.image;
     if (!await this.spatial.load(imageUrl, this.dataset.environmentUrl, this.dataset.surfaceTextureUrl, this.controller.signal)) return;
+    if (this.dataset.roomScene !== 'procedural' && (this.roomImage?.currentSrc || this.roomImage?.src)) {
+      try {
+        await this.spatial.loadRoom(this.roomImage.currentSrc || this.roomImage.src);
+        this.stage.dataset.roomRenderer = 'webgl';
+      } catch (error) {
+        console.warn('Frame Up room background could not be loaded.', error);
+      }
+    }
+    if (this.dataset.roomScene === 'procedural') this.stage.dataset.roomRenderer = 'webgl';
     this.stage.dataset.renderer = 'webgl';
     if (!this.isConnected || this.controller.signal.aborted) return;
     this.gallery = this.findGallery();
@@ -122,6 +134,7 @@ export default class FrameUpPreview extends HTMLElement {
       this.interaction.leave(); this.zoom = this.interaction.target.zoom; this.animateTilt();
     });
     this.listen(this.toggle, 'click', () => {
+      this.beginViewTransition();
       this.mode = this.mode === 'spatial' ? 'room' : 'spatial';
       this.stage.dataset.mode = this.mode;
       this.toggle.textContent = this.mode === 'room' ? 'View close up' : 'View in a room';
@@ -210,11 +223,48 @@ export default class FrameUpPreview extends HTMLElement {
 
   openSpatialCloseUp() {
     if (this.mode !== 'room') return;
+    this.beginViewTransition();
     this.mode = 'spatial';
     this.stage.dataset.mode = 'spatial';
     this.toggle.textContent = 'View in a room';
     this.toggle.setAttribute('aria-pressed', 'false');
     this.render();
+  }
+
+  clearViewTransition() {
+    this.viewTransitionAnimation?.cancel();
+    this.viewTransitionImage?.remove();
+    this.viewTransitionAnimation = null;
+    this.viewTransitionImage = null;
+  }
+
+  beginViewTransition() {
+    this.clearViewTransition();
+    if (this.reducedMotion?.matches) return;
+    const canvas = this.spatial?.renderer?.domElement;
+    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return;
+    // WebGL can clear its drawing buffer after compositing. Redraw and copy
+    // synchronously before switching the scene so the outgoing view survives.
+    this.paintSpatial();
+    const snapshot = document.createElement('canvas');
+    snapshot.width = canvas.width;
+    snapshot.height = canvas.height;
+    snapshot.className = 'frame-up-view-transition';
+    snapshot.setAttribute('aria-hidden', 'true');
+    const context = snapshot.getContext('2d');
+    if (!context) return;
+    context.fillStyle = '#fff';
+    context.fillRect(0, 0, snapshot.width, snapshot.height);
+    context.drawImage(canvas, 0, 0);
+    this.stage.append(snapshot);
+    this.viewTransitionImage = snapshot;
+    const animation = snapshot.animate([{ opacity: 1 }, { opacity: 0 }], {
+      duration: 320, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'forwards',
+    });
+    this.viewTransitionAnimation = animation;
+    animation.finished.then(() => {
+      if (this.viewTransitionImage === snapshot) this.clearViewTransition();
+    }).catch(() => {});
   }
 
   updateZoomFocus(event) {
@@ -363,9 +413,14 @@ export default class FrameUpPreview extends HTMLElement {
     const aspect = width / height;
     const room = this.mode === 'room';
     const spatialScale = clamp(Math.max(width, height) / 24, .85, 1);
-    let objectWidth = room ? rect.width * width / number(this.dataset.roomWidth, 120) : rect.width * .69 * spatialScale;
+    const roomImageWidth = this.dataset.roomScene === 'procedural' ? rect.width : this.roomImage?.naturalWidth || rect.width;
+    const roomImageHeight = this.dataset.roomScene === 'procedural' ? rect.height : this.roomImage?.naturalHeight || rect.height;
+    const roomDimensions = room ? model.roomPreviewDimensions(width, height, rect,
+      { width: roomImageWidth, height: roomImageHeight }, number(this.dataset.roomWidth, 65),
+      clamp(number(this.dataset.roomScale, 1.75), .75, 2)) : null;
+    let objectWidth = room ? roomDimensions.width : rect.width * .69 * spatialScale;
     let objectHeight = objectWidth / aspect;
-    const maxHeight = rect.height * (room ? .48 : .78);
+    const maxHeight = rect.height * (room ? .55 : .78);
     if (objectHeight > maxHeight) { objectHeight = maxHeight; objectWidth = objectHeight * aspect; }
     const pxPerInch = objectWidth / width;
     this.stage.dataset.material = appearance.kind;
@@ -436,7 +491,10 @@ export default class FrameUpPreview extends HTMLElement {
       this.spatial.update(value.selection, value.appearance, room,
         this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },
         value.width, value.height, room ? 1 : state.zoom, { x: state.panX, y: state.panY },
-        { width: rect.width, height: rect.height });
+        room ? { width: rect.width, height: rect.height,
+          centerX: clamp(number(this.dataset.roomCenterX, 47), 10, 90) / 100,
+          centerY: clamp(number(this.dataset.roomCenterY, 38), 10, 70) / 100,
+        } : { width: rect.width, height: rect.height });
       return;
     }
     const zoom = this.mode === 'room' ? 1 : this.zoom ?? 1;

@@ -1,6 +1,14 @@
 export const number = (value, fallback) => Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : fallback;
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
+export function roomPreviewDimensions(width, height, viewport, image, wallWidth = 65, scale = 1.75) {
+  const coverWidth = Math.max(viewport.width / image.width, viewport.height / image.height) * image.width;
+  const desiredWidth = coverWidth * width / Math.max(1, wallWidth) * scale;
+  const desiredHeight = desiredWidth * height / width;
+  const fit = Math.min(1, viewport.width * .68 / desiredWidth, viewport.height * .55 / desiredHeight);
+  return { width: desiredWidth * fit, height: desiredHeight * fit };
+}
+
 export class PreviewInteraction {
   constructor(values = {}) {
     this.settings = {

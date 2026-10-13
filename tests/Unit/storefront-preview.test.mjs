@@ -4,7 +4,76 @@ import { test } from 'node:test';
 globalThis.HTMLElement = class {};
 globalThis.cancelAnimationFrame = () => {};
 const { default: Preview } = await import('../../public/frame-up-preview/preview-runtime.js');
-const { PreviewInteraction } = await import('../../public/frame-up-preview/preview-model.js');
+const { PreviewInteraction, roomPreviewDimensions } = await import('../../public/frame-up-preview/preview-model.js');
+
+test('view changes crossfade the outgoing canvas and clean up safely during rapid toggles', async () => {
+  const originalDocument = globalThis.document;
+  const snapshots = [];
+  globalThis.document = {
+    createElement: () => {
+      let resolve;
+      const snapshot = {
+        setAttribute: () => {}, remove: () => { snapshot.removed = true; },
+        getContext: () => ({ fillRect: () => {}, drawImage: (canvas) => { snapshot.source = canvas; } }),
+        animate: (frames, settings) => {
+          snapshot.frames = frames;
+          snapshot.settings = settings;
+          snapshot.animation = { finished: new Promise((done) => { resolve = done; }), cancel: () => {} };
+          return snapshot.animation;
+        },
+        finish: () => resolve(),
+      };
+      snapshots.push(snapshot);
+      return snapshot;
+    },
+  };
+  const preview = new Preview();
+  preview.spatial = { renderer: { domElement: { width: 1200, height: 1200 } } };
+  preview.stage = { append: () => {} };
+  preview.reducedMotion = { matches: false };
+  let redraws = 0;
+  preview.paintSpatial = () => { redraws++; };
+
+  try {
+    preview.beginViewTransition();
+    assert.equal(redraws, 1);
+    assert.equal(snapshots[0].source, preview.spatial.renderer.domElement);
+    assert.deepEqual(snapshots[0].frames, [{ opacity: 1 }, { opacity: 0 }]);
+    assert.equal(snapshots[0].settings.duration, 320);
+    assert.equal(snapshots[0].width, 1200);
+    preview.beginViewTransition();
+    assert.equal(snapshots[0].removed, true);
+    snapshots[0].finish();
+    await Promise.resolve();
+    assert.equal(preview.viewTransitionImage, snapshots[1], 'old completion cannot remove the new transition');
+    snapshots[1].finish();
+    await Promise.resolve();
+    assert.equal(snapshots[1].removed, true);
+    assert.equal(preview.viewTransitionImage, null);
+    preview.reducedMotion.matches = true;
+    preview.beginViewTransition();
+    assert.equal(snapshots.length, 2, 'reduced motion must switch views immediately');
+  } finally {
+    preview.clearViewTransition();
+    globalThis.document = originalDocument;
+  }
+});
+
+test('room artwork is enlarged proportionally and stays inside the clear wall area', () => {
+  const viewport = { width: 760, height: 760 };
+  const image = { width: 1254, height: 1254 };
+  const square = roomPreviewDimensions(16, 16, viewport, image);
+  assert.equal(Math.round(square.width), 327);
+  assert.equal(Math.round(square.height), 327);
+  const portrait = roomPreviewDimensions(24, 36, viewport, image);
+  assert.equal(Math.round(portrait.width), 279);
+  assert.equal(Math.round(portrait.height), 418);
+  const landscape = roomPreviewDimensions(48, 24, viewport, image);
+  assert.equal(Math.round(landscape.width), 517);
+  assert.equal(Math.round(landscape.height), 258);
+  const original = roomPreviewDimensions(16, 16, viewport, image, 65, 1);
+  assert.ok(Math.abs(square.width / original.width - 1.75) < 1e-8);
+});
 
 test('the runtime damps zoom through animation frames while retaining a fixed viewport', () => {
   const preview = new Preview();

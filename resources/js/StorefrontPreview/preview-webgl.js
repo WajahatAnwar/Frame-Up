@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { RGBELoader } from 'three/addons/loaders/RGBELoader.js';
 import { environmentSettings, sceneLights } from './lighting.js';
 import { buildPrint, disposePrint } from './print-model.js';
+import { buildRoom, disposeRoom, buildRoomContactShadow } from './room-scene.js';
 
 export default class SpatialPreview {
   constructor(container) {
@@ -47,6 +48,14 @@ export default class SpatialPreview {
     return true;
   }
 
+  async loadRoom(imageUrl) {
+    const texture = await new THREE.TextureLoader().loadAsync(imageUrl);
+    texture.colorSpace = THREE.SRGBColorSpace;
+    if (this.disposed) { texture.dispose(); return; }
+    this.roomTexture?.dispose();
+    this.roomTexture = texture;
+  }
+
   update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1, focus = { x: 0, y: 0 }, viewport) {
     if (this.disposed || !this.artwork || pixelWidth <= 0 || pixelHeight <= 0) return;
     const key = JSON.stringify([selection.print.surface.id, selection.size.option, selection.mount.id, view, room]);
@@ -62,6 +71,17 @@ export default class SpatialPreview {
       this.modelSize = bounds.getSize(new THREE.Vector3());
       const sphere = bounds.getBoundingSphere(new THREE.Sphere());
       this.modelRadius = sphere.radius + sphere.center.length();
+      if (room) {
+        this.roomContactShadow = buildRoomContactShadow(bounds);
+        this.scene.add(this.roomContactShadow);
+        this.wallShadow = new THREE.Mesh(
+          new THREE.PlaneGeometry(this.modelSize.x * 8, this.modelSize.y * 8),
+          new THREE.ShadowMaterial({ opacity: .22, depthWrite: false }),
+        );
+        this.wallShadow.position.set(this.modelCenter.x, this.modelCenter.y, bounds.min.z - .05);
+        this.wallShadow.receiveShadow = true;
+        this.scene.add(this.wallShadow);
+      }
       this.key = key;
     }
     this.scene.environment = this.environment?.texture ?? null;
@@ -74,17 +94,26 @@ export default class SpatialPreview {
       this.pixelHeight = renderHeight;
     }
     this.camera.aspect = renderWidth / renderHeight;
-    this.camera.zoom = viewport ? Math.max(.1, zoom * pixelHeight / renderHeight) : THREE.MathUtils.clamp(zoom, 1, 3);
+    this.scene.background = room ? this.roomTexture ?? null : null;
+    if (this.wallShadow) this.wallShadow.visible = !this.roomTexture;
+    if (room && this.roomTexture) {
+      const imageAspect = this.roomTexture.image.width / this.roomTexture.image.height;
+      const aspect = renderWidth / renderHeight;
+      this.roomTexture.repeat.set(Math.min(1, aspect / imageAspect), Math.min(1, imageAspect / aspect));
+      this.roomTexture.offset.set((1 - this.roomTexture.repeat.x) / 2, (1 - this.roomTexture.repeat.y) / 2);
+    }
+    this.camera.zoom = room && viewport ? 1 : viewport ? Math.max(.1, zoom * pixelHeight / renderHeight) : THREE.MathUtils.clamp(zoom, 1, 3);
     const size = this.modelSize;
     const fitHeight = Math.max(size.y, size.x / (pixelWidth / pixelHeight));
-    const distance = fitHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * (room ? 1.2 : 1.08) + size.z;
+    const visibleHeight = room && viewport ? fitHeight * renderHeight / pixelHeight : fitHeight;
+    const distance = visibleHeight / (2 * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2))) * (room ? 1 : 1.08) + size.z;
     const halfHeight = distance * Math.tan(THREE.MathUtils.degToRad(this.camera.fov / 2));
     const pan = room ? 0 : 1 - 1 / this.camera.zoom;
     const panX = viewport ? Math.max(0, size.x / 2 - halfHeight * this.camera.aspect / this.camera.zoom) : halfHeight * this.camera.aspect * pan;
     const panY = viewport ? Math.max(0, size.y / 2 - halfHeight / this.camera.zoom) : halfHeight * pan;
     this.camera.position.set(
-      viewport ? this.modelCenter.x : THREE.MathUtils.clamp(focus.x, -1, 1) * panX,
-      viewport ? this.modelCenter.y + (room ? -halfHeight / this.camera.zoom * .4 : 0) : THREE.MathUtils.clamp(focus.y, -1, 1) * panY,
+      viewport ? this.modelCenter.x + (room ? (1 - 2 * (viewport.centerX ?? .47)) * halfHeight * this.camera.aspect / this.camera.zoom : 0) : THREE.MathUtils.clamp(focus.x, -1, 1) * panX,
+      viewport ? this.modelCenter.y + (room ? (2 * (viewport.centerY ?? .38) - 1) * halfHeight / this.camera.zoom : 0) : THREE.MathUtils.clamp(focus.y, -1, 1) * panY,
       viewport ? distance + this.modelCenter.z : distance,
     );
     // Fit clipping planes to the entire model at any hover angle. A tiny near
@@ -94,6 +123,23 @@ export default class SpatialPreview {
     this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
     this.group.rotation.set(room ? 0 : THREE.MathUtils.degToRad(tilt.x), room ? 0 : THREE.MathUtils.degToRad(tilt.y), 0);
+    if (room && !this.roomTexture) {
+      if (!this.roomScene || this.roomAspect !== this.camera.aspect) {
+        if (this.roomScene) { this.scene.remove(this.roomScene); disposeRoom(this.roomScene); }
+        this.roomScene = buildRoom(this.camera.aspect, this.surfaceTexture);
+        this.roomAspect = this.camera.aspect;
+        this.scene.add(this.roomScene);
+      }
+      const roomHeight = 2 * halfHeight / this.camera.zoom;
+      this.roomScene.scale.setScalar(roomHeight);
+      this.roomScene.position.set(this.camera.position.x, this.camera.position.y, this.modelBounds.min.z - .06);
+      this.wallShadow.visible = false;
+      this.roomScene.updateMatrixWorld(true);
+      const roomBounds = new THREE.Box3().setFromObject(this.roomScene);
+      this.camera.near = Math.max(.01, Math.min(this.camera.near, this.camera.position.z - roomBounds.max.z - .1));
+      this.camera.far = Math.max(this.camera.far, this.camera.position.z - roomBounds.min.z + .1);
+      this.camera.updateProjectionMatrix();
+    }
     if (viewport && !room) this.inspectProjectedProduct(focus, renderWidth, renderHeight, zoom);
     this.renderer.render(this.scene, this.camera);
   }
@@ -125,6 +171,24 @@ export default class SpatialPreview {
   }
 
   clearModel() {
+    if (this.roomContactShadow) {
+      this.scene.remove(this.roomContactShadow);
+      this.roomContactShadow.geometry.dispose();
+      this.roomContactShadow.material.map.dispose();
+      this.roomContactShadow.material.dispose();
+      this.roomContactShadow = null;
+    }
+    if (this.roomScene) {
+      this.scene.remove(this.roomScene);
+      disposeRoom(this.roomScene);
+      this.roomScene = null;
+    }
+    if (this.wallShadow) {
+      this.scene.remove(this.wallShadow);
+      this.wallShadow.geometry.dispose();
+      this.wallShadow.material.dispose();
+      this.wallShadow = null;
+    }
     if (this.group) {
       this.scene.remove(this.group);
       disposePrint(this.group, [this.artwork, this.surfaceTexture]);
@@ -141,6 +205,7 @@ export default class SpatialPreview {
     this.artwork?.dispose();
     this.surfaceTexture?.dispose();
     this.hdr?.dispose();
+    this.roomTexture?.dispose();
     this.environment?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();
