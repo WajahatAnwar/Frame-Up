@@ -5,8 +5,8 @@
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
     data-media-selector="{{ block.settings.media_selector | escape }}"
     data-room-width="{{ block.settings.room_width }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=35' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=35' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=37' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=37' | escape }}"
     data-tilt-x="{{ block.settings.tilt_x }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
@@ -23,7 +23,7 @@
         "type": {{ product.type | json | replace: '<', '\u003c' }},
         "handle": {{ product.handle | json }},
         "title": {{ product.title | json | replace: '<', '\u003c' }},
-        "image": {{ product.featured_image | image_url: width: 1800 | json }},
+        "image": {{ product.featured_image | image_url: width: 5760 | json }},
         "imageWidth": {{ product.featured_image.width | json }},
         "imageHeight": {{ product.featured_image.height | json }},
         "optionNames": {{ product.options | json | replace: '<', '\u003c' }},
@@ -74,14 +74,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=35`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=37`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=35`;
+        script.src = `${proxy}/assets/product-preview.js?v=37`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {

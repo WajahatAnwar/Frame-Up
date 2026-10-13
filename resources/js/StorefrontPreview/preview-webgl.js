@@ -36,6 +36,7 @@ export default class SpatialPreview {
     const textureLoader = new THREE.TextureLoader();
     this.artwork = await textureLoader.loadAsync(imageUrl);
     this.artwork.colorSpace = THREE.SRGBColorSpace;
+    this.artwork.wrapS = this.artwork.wrapT = THREE.ClampToEdgeWrapping;
     this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     if (textureUrl) {
       this.surfaceTexture = await textureLoader.loadAsync(textureUrl);

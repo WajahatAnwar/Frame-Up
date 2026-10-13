@@ -10165,67 +10165,41 @@ var _s = class {
 			antialias: !0
 		}), this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)), this.renderer.outputColorSpace = x, this.renderer.toneMapping = 4, this.renderer.toneMappingExposure = fs.exposure, this.renderer.setClearColor(16777215, 0), this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = 2, this.scene = new go(), this.camera = new er(50, 1, .01, 1e3), this.renderer.domElement.setAttribute("aria-hidden", "true");
 	}
-	async load(t, n, r, i) {
-		let a = await fetch(n, { signal: i });
-		if (!a.ok) throw Error("The preview lighting environment could not be loaded.");
-		let o = new ds().parse(await a.arrayBuffer());
-		this.hdr = new _o(o.data, o.width, o.height, d, o.type), this.hdr.mapping = 303, this.hdr.colorSpace = S, this.hdr.flipY = !0, this.hdr.needsUpdate = !0;
-		let s = new Ir(this.renderer);
-		this.environment = s.fromEquirectangular(this.hdr), s.dispose(), this.scene.environment = this.environment.texture;
-		let c = new Uo();
-		return this.artwork = await c.loadAsync(t), this.artwork.colorSpace = x, this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy(), r && (this.surfaceTexture = await c.loadAsync(r), this.surfaceTexture.wrapS = this.surfaceTexture.wrapT = e), i.aborted || this.disposed ? (this.dispose(), !1) : (this.container.replaceChildren(this.renderer.domElement), this.snapshotImage = document.createElement("img"), this.snapshotImage.alt = "Product preview", this.snapshotImage.className = "frame-up-snapshot", this.snapshotImage.hidden = !0, this.container.append(this.snapshotImage), !0);
+	async load(n, r, i, a) {
+		let o = await fetch(r, { signal: a });
+		if (!o.ok) throw Error("The preview lighting environment could not be loaded.");
+		let s = new ds().parse(await o.arrayBuffer());
+		this.hdr = new _o(s.data, s.width, s.height, d, s.type), this.hdr.mapping = 303, this.hdr.colorSpace = S, this.hdr.flipY = !0, this.hdr.needsUpdate = !0;
+		let c = new Ir(this.renderer);
+		this.environment = c.fromEquirectangular(this.hdr), c.dispose(), this.scene.environment = this.environment.texture;
+		let l = new Uo();
+		return this.artwork = await l.loadAsync(n), this.artwork.colorSpace = x, this.artwork.wrapS = this.artwork.wrapT = t, this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy(), i && (this.surfaceTexture = await l.loadAsync(i), this.surfaceTexture.wrapS = this.surfaceTexture.wrapT = e), a.aborted || this.disposed ? (this.dispose(), !1) : (this.container.replaceChildren(this.renderer.domElement), !0);
 	}
 	update(e, t, n, r, i, a, o = 1, s = {
 		x: 0,
 		y: 0
-	}, c, l = !1) {
+	}, c) {
 		if (this.disposed || !this.artwork || i <= 0 || a <= 0) return;
-		let u = JSON.stringify([
+		let l = JSON.stringify([
 			e.print.surface.id,
 			e.size.option,
 			e.mount.id,
 			t,
 			n
-		]), d = Number(e.size.width), f = Number(e.size.height);
-		if (u !== this.key) {
-			this.clearModel(), this.group = hs(d, f, t, this.artwork, this.surfaceTexture), this.lights = ps(d, f, n), this.scene.add(this.group, this.lights);
+		]), u = Number(e.size.width), d = Number(e.size.height);
+		if (l !== this.key) {
+			this.clearModel(), this.group = hs(u, d, t, this.artwork, this.surfaceTexture), this.lights = ps(u, d, n), this.scene.add(this.group, this.lights);
 			let e = new Be().setFromObject(this.group);
 			this.modelBounds = e.clone(), this.modelCenter = e.getCenter(new J()), this.modelSize = e.getSize(new J());
 			let r = e.getBoundingSphere(new it());
-			this.modelRadius = r.radius + r.center.length(), this.key = u;
+			this.modelRadius = r.radius + r.center.length(), this.key = l;
 		}
 		this.scene.environment = this.environment?.texture ?? null;
-		let p = c?.width ?? i, m = c?.height ?? a;
-		if (p <= 0 || m <= 0) return;
-		(p !== this.pixelWidth || m !== this.pixelHeight) && (this.renderer.setSize(p, m, !1), this.pixelWidth = p, this.pixelHeight = m), this.camera.aspect = p / m, this.camera.zoom = c ? Math.max(.1, o * a / m) : V.clamp(o, 1, 3);
-		let h = this.modelSize, g = Math.max(h.y, h.x / (i / a)) / (2 * Math.tan(V.degToRad(this.camera.fov / 2))) * (n ? 1.2 : 1.08) + h.z, _ = g * Math.tan(V.degToRad(this.camera.fov / 2)), v = n ? 0 : 1 - 1 / this.camera.zoom, y = c ? Math.max(0, h.x / 2 - _ * this.camera.aspect / this.camera.zoom) : _ * this.camera.aspect * v, b = c ? Math.max(0, h.y / 2 - _ / this.camera.zoom) : _ * v;
-		if (this.camera.position.set(c ? this.modelCenter.x : V.clamp(s.x, -1, 1) * y, c ? this.modelCenter.y + (n ? -_ / this.camera.zoom * .4 : 0) : V.clamp(s.y, -1, 1) * b, c ? g + this.modelCenter.z : g), this.camera.near = Math.max(.01, g - this.modelRadius * 1.25), this.camera.far = g + this.modelRadius * 1.25, this.camera.clearViewOffset(), this.camera.updateProjectionMatrix(), this.group.rotation.set(n || l ? 0 : V.degToRad(r.x), n || l ? 0 : V.degToRad(r.y), 0), c && !n && this.inspectProjectedProduct(s, p, m, o), this.snapshotImage) {
-			let e = JSON.stringify([
-				u,
-				p,
-				m,
-				i,
-				a
-			]);
-			n || this.captureSnapshot(e, c ? a / m : 1), this.flatPresentation = !n && l, this.snapshotTransform = `translate(${-(this.camera.view?.offsetX ?? 0)}px, ${-(this.camera.view?.offsetY ?? 0)}px) scale(${o})`, this.showSnapshot(e);
-		}
-		this.renderer.render(this.scene, this.camera);
-	}
-	captureSnapshot(e, t) {
-		if (e === this.snapshotRequestKey) return;
-		this.snapshotRequestKey = e;
-		let n = this.group.rotation.clone(), r = this.camera.zoom, i = this.camera.view ? { ...this.camera.view } : null;
-		this.group.rotation.set(0, 0, 0), this.camera.zoom = t, this.camera.clearViewOffset(), this.camera.updateProjectionMatrix(), this.renderer.render(this.scene, this.camera), this.renderer.domElement.toBlob((t) => {
-			if (!t || this.disposed || e !== this.snapshotRequestKey) return;
-			let n = URL.createObjectURL(t), r = this.snapshotUrl;
-			this.snapshotImage.onload = () => {
-				this.disposed || e !== this.snapshotRequestKey || (this.snapshotKey = e, this.showSnapshot(e));
-			}, this.snapshotUrl = n, this.snapshotImage.src = n, r && URL.revokeObjectURL(r);
-		}, "image/png"), this.group.rotation.copy(n), this.camera.zoom = r, this.camera.view = i, this.camera.updateProjectionMatrix();
-	}
-	showSnapshot(e) {
-		let t = this.flatPresentation && this.snapshotKey === e;
-		this.snapshotImage.hidden = !t, this.snapshotImage.style.transform = this.snapshotTransform, this.renderer.domElement.style.visibility = t ? "hidden" : "";
+		let f = c?.width ?? i, p = c?.height ?? a;
+		if (f <= 0 || p <= 0) return;
+		(f !== this.pixelWidth || p !== this.pixelHeight) && (this.renderer.setSize(f, p, !1), this.pixelWidth = f, this.pixelHeight = p), this.camera.aspect = f / p, this.camera.zoom = c ? Math.max(.1, o * a / p) : V.clamp(o, 1, 3);
+		let m = this.modelSize, h = Math.max(m.y, m.x / (i / a)) / (2 * Math.tan(V.degToRad(this.camera.fov / 2))) * (n ? 1.2 : 1.08) + m.z, g = h * Math.tan(V.degToRad(this.camera.fov / 2)), _ = n ? 0 : 1 - 1 / this.camera.zoom, v = c ? Math.max(0, m.x / 2 - g * this.camera.aspect / this.camera.zoom) : g * this.camera.aspect * _, y = c ? Math.max(0, m.y / 2 - g / this.camera.zoom) : g * _;
+		this.camera.position.set(c ? this.modelCenter.x : V.clamp(s.x, -1, 1) * v, c ? this.modelCenter.y + (n ? -g / this.camera.zoom * .4 : 0) : V.clamp(s.y, -1, 1) * y, c ? h + this.modelCenter.z : h), this.camera.near = Math.max(.01, h - this.modelRadius * 1.25), this.camera.far = h + this.modelRadius * 1.25, this.camera.clearViewOffset(), this.camera.updateProjectionMatrix(), this.group.rotation.set(n ? 0 : V.degToRad(r.x), n ? 0 : V.degToRad(r.y), 0), c && !n && this.inspectProjectedProduct(s, f, p, o), this.renderer.render(this.scene, this.camera);
 	}
 	inspectProjectedProduct(e, t, n, r) {
 		this.group.updateMatrixWorld(!0), this.camera.updateMatrixWorld(!0);
@@ -10241,7 +10215,7 @@ var _s = class {
 		this.group && (this.scene.remove(this.group), gs(this.group, [this.artwork, this.surfaceTexture])), this.lights && (this.scene.remove(this.lights), this.lights.traverse((e) => e.shadow?.map?.dispose()));
 	}
 	dispose() {
-		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove(), this.snapshotImage?.remove(), this.snapshotUrl && URL.revokeObjectURL(this.snapshotUrl);
+		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove();
 	}
 };
 //#endregion
