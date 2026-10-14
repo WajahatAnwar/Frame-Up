@@ -4,19 +4,19 @@
     hidden
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
     data-media-selector="{{ block.settings.media_selector | escape }}"
-    data-room-width="{% if block.settings.room_image != blank %}{{ block.settings.room_width }}{% else %}{{ block.settings.procedural_room_width | default: 65 }}{% endif %}"
+    data-room-width="65"
     data-room-scene="image"
-    data-room-scale="{{ block.settings.room_scale | default: 200 | divided_by: 100.0 }}"
-    data-room-center-x="{{ block.settings.room_center_x }}"
-    data-room-center-y="{{ block.settings.room_center_y }}"
+    data-room-scale="2"
+    data-room-center-x="47"
+    data-room-center-y="38"
     data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=49' | escape }}"
     data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=49' | escape }}"
-    data-tilt-y="{{ block.settings.tilt_y }}"
-    data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
-    data-max-zoom="{{ block.settings.max_zoom | divided_by: 100.0 }}"
-    data-zoom-speed="{{ block.settings.zoom_speed | divided_by: 10000.0 }}"
-    data-movement="{{ block.settings.movement_strength | divided_by: 100.0 }}"
-    data-damping="{{ block.settings.damping }}"
+    data-tilt-y="12"
+    data-min-zoom="1"
+    data-max-zoom="3"
+    data-zoom-speed="0.002"
+    data-movement="1"
+    data-damping="10"
     data-environment-url="{{ preview_assets | append: 'lebombo_1k.hdr' | escape }}"
     data-surface-texture-url="{{ preview_assets | append: 'concrete-light.jpg' | escape }}"
   >
@@ -94,12 +94,8 @@
   </script>
 {% endif %}
 
-{% schema %}
-{
-  "name": "Frame Up product preview",
-  "target": "body",
-  "enabled_on": { "templates": ["product"] },
-  "settings": [
+{% comment %}
+  Archived settings. Keep outside schema because Shopify requires valid JSON.
     { "type": "range", "id": "tilt_y", "label": "Horizontal tilt limit", "min": 0, "max": 25, "step": 1, "default": 12, "unit": "°" },
     { "type": "range", "id": "min_zoom", "label": "Minimum zoom", "min": 50, "max": 100, "step": 5, "default": 100, "unit": "%" },
     { "type": "range", "id": "max_zoom", "label": "Maximum zoom", "min": 100, "max": 600, "step": 25, "default": 300, "unit": "%" },
@@ -107,13 +103,21 @@
     { "type": "range", "id": "movement_strength", "label": "Magnifier movement", "min": 0, "max": 100, "step": 5, "default": 100, "unit": "%" },
     { "type": "range", "id": "damping", "label": "Interaction responsiveness", "min": 1, "max": 30, "step": 1, "default": 10 },
     { "type": "paragraph", "content": "Shows a spatial artwork preview only on products successfully linked to a Frame Up configuration. Your theme controls sizes, variants and checkout." },
-    { "type": "image_picker", "id": "room_image", "label": "Room background" },
     { "type": "range", "id": "procedural_room_width", "label": "Default room wall width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
     { "type": "range", "id": "room_scale", "label": "Artwork scale in room", "unit": "%", "min": 75, "max": 200, "step": 5, "default": 200 },
     { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
     { "type": "range", "id": "room_center_x", "label": "Artwork horizontal position", "unit": "%", "min": 10, "max": 90, "step": 1, "default": 47 },
     { "type": "range", "id": "room_center_y", "label": "Artwork vertical position", "unit": "%", "min": 10, "max": 70, "step": 1, "default": 38 },
-    { "type": "text", "id": "proxy_path", "label": "App proxy path", "default": "/apps/frame-up", "info": "Match the app proxy prefix and subpath configured for this shop." },
+{% endcomment %}
+
+{% schema %}
+{
+  "name": "Frame Up product preview",
+  "target": "body",
+  "enabled_on": { "templates": ["product"] },
+  "settings": [
+    { "type": "image_picker", "id": "room_image", "label": "Room background" },
+    { "type": "text", "id": "proxy_path", "label": "App proxy URL path", "default": "/apps/frame-up", "info": "If you customize the App Proxy URL in Shopify admin, enter the same path here (for example, /tools/art-preview) and save." },
     { "type": "text", "id": "media_selector", "label": "Product media CSS selector", "info": "Optional for custom themes. Leave empty to detect the product gallery automatically." }
   ]
 }
