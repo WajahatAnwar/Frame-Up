@@ -35,7 +35,6 @@ frame-up-preview .frame-up-stage[data-renderer="webgl"] .frame-up-object {
   inset: 0; width: 100%; height: 100%; transform: none; transition: none;
 }
 frame-up-preview .frame-up-object canvas { display: block; width: 100%; height: 100%; }
-frame-up-preview .frame-up-view-transition { position: absolute; inset: 0; z-index: 1; width: 100%; height: 100%; pointer-events: none; }
 frame-up-preview .frame-up-face, frame-up-preview .frame-up-back { position: absolute; inset: 0; background: var(--frame-color); }
 frame-up-preview .frame-up-face {
   padding: var(--frame-rim);

@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=44';
+import * as model from './preview-model.js?v=46';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -216,7 +216,7 @@ export default class FrameUpPreview extends HTMLElement {
     this.targetTilt = { x: 0, y: 0 };
     this.setZoom(zoomingOut ? 1 : 2);
     if (zoomingOut && this.zoomFocus && this.reducedMotion && !this.reducedMotion.matches) {
-      this.targetTilt = { x: this.zoomFocus.y * 6, y: this.zoomFocus.x * 15 };
+      this.targetTilt = { x: 0, y: -this.zoomFocus.x * 15 };
       this.animateTilt();
     }
   }
@@ -232,39 +232,23 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   clearViewTransition() {
-    this.viewTransitionAnimation?.cancel();
-    this.viewTransitionImage?.remove();
-    this.viewTransitionAnimation = null;
-    this.viewTransitionImage = null;
+    this.viewTransition = null;
   }
 
   beginViewTransition() {
     this.clearViewTransition();
     if (this.reducedMotion?.matches) return;
-    const canvas = this.spatial?.renderer?.domElement;
-    if (!canvas || canvas.width <= 0 || canvas.height <= 0) return;
-    // WebGL can clear its drawing buffer after compositing. Redraw and copy
-    // synchronously before switching the scene so the outgoing view survives.
-    this.paintSpatial();
-    const snapshot = document.createElement('canvas');
-    snapshot.width = canvas.width;
-    snapshot.height = canvas.height;
-    snapshot.className = 'frame-up-view-transition';
-    snapshot.setAttribute('aria-hidden', 'true');
-    const context = snapshot.getContext('2d');
-    if (!context) return;
-    context.fillStyle = '#fff';
-    context.fillRect(0, 0, snapshot.width, snapshot.height);
-    context.drawImage(canvas, 0, 0);
-    this.stage.append(snapshot);
-    this.viewTransitionImage = snapshot;
-    const animation = snapshot.animate([{ opacity: 1 }, { opacity: 0 }], {
-      duration: 320, easing: 'cubic-bezier(.22,.61,.36,1)', fill: 'forwards',
-    });
-    this.viewTransitionAnimation = animation;
-    animation.finished.then(() => {
-      if (this.viewTransitionImage === snapshot) this.clearViewTransition();
-    }).catch(() => {});
+    if (!this.spatial?.captureViewState) return;
+    this.viewTransition = { from: this.spatial.captureViewState(), elapsed: 0, progress: 0 };
+  }
+
+  stepViewTransition(seconds) {
+    if (!this.viewTransition) return false;
+    this.viewTransition.elapsed += Math.max(0, Math.min(seconds, .05));
+    const progress = Math.min(1, this.viewTransition.elapsed / .48);
+    this.viewTransition.progress = progress * progress * (3 - 2 * progress);
+    if (progress === 1) { this.clearViewTransition(); return false; }
+    return true;
   }
 
   updateZoomFocus(event) {
@@ -443,16 +427,17 @@ export default class FrameUpPreview extends HTMLElement {
 
   animateTilt() {
     if (this.interaction) {
-      if (this.animation || this.mode !== 'spatial') return;
+      if (this.animation || (this.mode !== 'spatial' && !this.viewTransition)) return;
       let previous;
       const tick = (time) => {
         this.animation = null;
-        if (!this.isConnected || this.mode !== 'spatial') return;
+        if (!this.isConnected || (this.mode !== 'spatial' && !this.viewTransition)) return;
         const dt = previous === undefined ? 1 / 60 : (time - previous) / 1000;
         previous = time;
-        const moving = this.interaction.step(dt, this.reducedMotion.matches);
+        const moving = this.mode === 'spatial' && this.interaction.step(dt, this.reducedMotion.matches);
+        const transitioning = this.stepViewTransition(dt);
         this.paintSpatial();
-        if (moving) this.animation = requestAnimationFrame(tick);
+        if (moving || transitioning) this.animation = requestAnimationFrame(tick);
       };
       this.animation = requestAnimationFrame(tick);
       return;
@@ -487,14 +472,16 @@ export default class FrameUpPreview extends HTMLElement {
       const state = this.interaction.state;
       const room = this.mode === 'room';
       const rect = this.stage.getBoundingClientRect();
+      const viewport = room ? { width: rect.width, height: rect.height,
+        centerX: clamp(number(this.dataset.roomCenterX, 47), 10, 90) / 100,
+        centerY: clamp(number(this.dataset.roomCenterY, 38), 10, 70) / 100,
+      } : { width: rect.width, height: rect.height };
+      if (this.viewTransition) viewport.transition = this.viewTransition;
       this.stage.dataset.zoomed = String(!room && state.zoom > 1.001);
       this.spatial.update(value.selection, value.appearance, room,
         this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },
         value.width, value.height, room ? 1 : state.zoom, { x: state.panX, y: state.panY },
-        room ? { width: rect.width, height: rect.height,
-          centerX: clamp(number(this.dataset.roomCenterX, 47), 10, 90) / 100,
-          centerY: clamp(number(this.dataset.roomCenterY, 38), 10, 70) / 100,
-        } : { width: rect.width, height: rect.height });
+        viewport);
       return;
     }
     const zoom = this.mode === 'room' ? 1 : this.zoom ?? 1;

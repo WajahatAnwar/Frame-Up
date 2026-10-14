@@ -10787,7 +10787,23 @@ var Xs = class {
 			t.dispose();
 			return;
 		}
-		this.roomTexture?.dispose(), this.roomTexture = t;
+		this.roomTexture?.dispose(), this.roomTexture = t, this.roomBackground = new go(), this.roomBackgroundCamera = new wr(-1, 1, 1, -1, 0, 2), this.roomBackgroundCamera.position.z = 1, this.roomBackgroundMesh = new X(new hr(2, 2), new an({
+			map: t,
+			transparent: !0,
+			depthWrite: !1,
+			toneMapped: !1
+		})), this.roomBackground.add(this.roomBackgroundMesh);
+	}
+	captureViewState() {
+		return {
+			position: this.camera.position.clone(),
+			zoom: this.camera.zoom,
+			near: this.camera.near,
+			far: this.camera.far,
+			rotation: this.group?.rotation.clone(),
+			view: this.camera.view?.enabled ? { ...this.camera.view } : null,
+			roomMix: this.roomMix ?? 0
+		};
 	}
 	update(e, t, n, r, i, a, o = 1, s = {
 		x: 0,
@@ -10814,7 +10830,7 @@ var Xs = class {
 		this.scene.environment = this.environment?.texture ?? null;
 		let f = c?.width ?? i, p = c?.height ?? a;
 		if (f <= 0 || p <= 0) return;
-		if ((f !== this.pixelWidth || p !== this.pixelHeight) && (this.renderer.setSize(f, p, !1), this.pixelWidth = f, this.pixelHeight = p), this.camera.aspect = f / p, this.scene.background = n ? this.roomTexture ?? null : null, this.wallShadow && (this.wallShadow.visible = !this.roomTexture), n && this.roomTexture) {
+		if ((f !== this.pixelWidth || p !== this.pixelHeight) && (this.renderer.setSize(f, p, !1), this.pixelWidth = f, this.pixelHeight = p), this.camera.aspect = f / p, this.scene.background = this.roomBackgroundMesh ? null : n ? this.roomTexture ?? null : null, this.wallShadow && (this.wallShadow.visible = !this.roomTexture), this.roomTexture) {
 			let e = this.roomTexture.image.width / this.roomTexture.image.height, t = f / p;
 			this.roomTexture.repeat.set(Math.min(1, t / e), Math.min(1, e / t)), this.roomTexture.offset.set((1 - this.roomTexture.repeat.x) / 2, (1 - this.roomTexture.repeat.y) / 2);
 		}
@@ -10827,7 +10843,18 @@ var Xs = class {
 			let t = new Be().setFromObject(this.roomScene);
 			this.camera.near = Math.max(.01, Math.min(this.camera.near, this.camera.position.z - t.max.z - .1)), this.camera.far = Math.max(this.camera.far, this.camera.position.z - t.min.z + .1), this.camera.updateProjectionMatrix();
 		}
-		c && !n && this.inspectProjectedProduct(s, f, p, o), this.renderer.render(this.scene, this.camera);
+		c && !n && this.inspectProjectedProduct(s, f, p, o);
+		let x = c?.transition;
+		if (this.roomMix = +!!n, x) {
+			let { from: e, progress: t } = x;
+			this.camera.position.lerpVectors(e.position, this.camera.position.clone(), t), this.camera.zoom = V.lerp(e.zoom, this.camera.zoom, t), this.camera.near = V.lerp(e.near, this.camera.near, t), this.camera.far = V.lerp(e.far, this.camera.far, t), e.rotation && (this.group.rotation.x = V.lerp(e.rotation.x, this.group.rotation.x, t), this.group.rotation.y = V.lerp(e.rotation.y, this.group.rotation.y, t)), this.roomMix = V.lerp(e.roomMix, this.roomMix, t);
+			let n = this.camera.view?.enabled ? this.camera.view : null;
+			(e.view || n) && this.camera.setViewOffset(f, p, V.lerp(e.view?.offsetX ?? 0, n?.offsetX ?? 0, t), V.lerp(e.view?.offsetY ?? 0, n?.offsetY ?? 0, t), f, p), this.camera.updateProjectionMatrix();
+		}
+		if (this.roomContactShadow && (this.roomContactShadow.material.opacity = this.roomMix), this.roomBackgroundMesh) {
+			let e = this.renderer.autoClear;
+			this.renderer.autoClear = !1, this.renderer.clear(), this.roomBackgroundMesh.material.opacity = this.roomMix, this.roomMix > 0 && this.renderer.render(this.roomBackground, this.roomBackgroundCamera), this.renderer.clearDepth(), this.renderer.render(this.scene, this.camera), this.renderer.autoClear = e;
+		} else this.renderer.render(this.scene, this.camera);
 	}
 	inspectProjectedProduct(e, t, n, r) {
 		this.group.updateMatrixWorld(!0), this.camera.updateMatrixWorld(!0);
@@ -10843,7 +10870,7 @@ var Xs = class {
 		this.roomContactShadow &&= (this.scene.remove(this.roomContactShadow), this.roomContactShadow.geometry.dispose(), this.roomContactShadow.material.map.dispose(), this.roomContactShadow.material.dispose(), null), this.roomScene &&= (this.scene.remove(this.roomScene), Js(this.roomScene), null), this.wallShadow &&= (this.scene.remove(this.wallShadow), this.wallShadow.geometry.dispose(), this.wallShadow.material.dispose(), null), this.group && (this.scene.remove(this.group), Ks(this.group, [this.artwork, this.surfaceTexture])), this.lights && (this.scene.remove(this.lights), this.lights.traverse((e) => e.shadow?.map?.dispose()));
 	}
 	dispose() {
-		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.roomTexture?.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove();
+		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.roomTexture?.dispose(), this.roomBackgroundMesh?.geometry.dispose(), this.roomBackgroundMesh?.material.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove();
 	}
 };
 //#endregion

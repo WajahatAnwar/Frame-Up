@@ -9,9 +9,8 @@
     data-room-scale="{{ block.settings.room_scale | default: 175 | divided_by: 100.0 }}"
     data-room-center-x="{{ block.settings.room_center_x }}"
     data-room-center-y="{{ block.settings.room_center_y }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=44' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=44' | escape }}"
-    data-tilt-x="{{ block.settings.tilt_x }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=46' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=46' | escape }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
     data-max-zoom="{{ block.settings.max_zoom | divided_by: 100.0 }}"
@@ -78,14 +77,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=44`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=46`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=44`;
+        script.src = `${proxy}/assets/product-preview.js?v=46`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {
@@ -101,7 +100,6 @@
   "target": "body",
   "enabled_on": { "templates": ["product"] },
   "settings": [
-    { "type": "range", "id": "tilt_x", "label": "Vertical tilt limit", "min": 0, "max": 20, "step": 1, "default": 6, "unit": "°" },
     { "type": "range", "id": "tilt_y", "label": "Horizontal tilt limit", "min": 0, "max": 25, "step": 1, "default": 12, "unit": "°" },
     { "type": "range", "id": "min_zoom", "label": "Minimum zoom", "min": 50, "max": 100, "step": 5, "default": 100, "unit": "%" },
     { "type": "range", "id": "max_zoom", "label": "Maximum zoom", "min": 100, "max": 600, "step": 25, "default": 300, "unit": "%" },

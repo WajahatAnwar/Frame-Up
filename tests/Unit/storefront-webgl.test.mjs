@@ -6,6 +6,49 @@ import { disposePrint } from '../../resources/js/StorefrontPreview/print-model.j
 import { appearance } from '../../public/frame-up-preview/preview-model.js';
 import { buildRoomContactShadow } from '../../resources/js/StorefrontPreview/room-scene.js';
 
+test('room transition interpolates camera placement and background without drawing a duplicate product', () => {
+  const preview = Object.create(SpatialPreview.prototype);
+  preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });
+  preview.roomTexture = new THREE.Texture({ width: 1254, height: 1254 });
+  preview.roomBackground = new THREE.Scene();
+  preview.roomBackgroundCamera = new THREE.OrthographicCamera();
+  preview.roomBackgroundMesh = { material: { opacity: 0 } };
+  preview.scene = new THREE.Scene();
+  preview.camera = new THREE.PerspectiveCamera(50, 1, .01, 1000);
+  const draws = [];
+  preview.renderer = { autoClear: true, setSize: () => {}, clear: () => {}, clearDepth: () => {}, render: (scene) => draws.push(scene) };
+  const selection = {
+    print: { surface: { id: 1, settings: { material_type: 'Metal', metal_thickness: .02 } } },
+    size: { option: '24x36', width: 24, height: 36 }, mount: { id: 2, settings: {} },
+  };
+  const view = appearance(selection);
+  const viewport = { width: 600, height: 600 };
+  try {
+    preview.update(selection, view, false, { x: 0, y: 12 }, 300, 450, 1, { x: 0, y: 0 }, viewport);
+    const from = preview.captureViewState();
+    preview.update(selection, view, true, { x: 0, y: 0 }, 240, 360, 1, { x: 0, y: 0 }, viewport);
+    const target = preview.captureViewState();
+    const group = preview.group;
+    for (const progress of [0, .5, 1]) {
+      draws.length = 0;
+      preview.update(selection, view, true, { x: 0, y: 0 }, 240, 360, 1, { x: 0, y: 0 },
+        { ...viewport, transition: { from, progress } });
+      assert.ok(preview.camera.position.distanceTo(from.position.clone().lerp(target.position, progress)) < 1e-8);
+      assert.ok(Math.abs(preview.camera.zoom - (.75 + .25 * progress)) < 1e-8);
+      assert.ok(Math.abs(preview.group.rotation.y - THREE.MathUtils.degToRad(12) * (1 - progress)) < 1e-8);
+      assert.equal(preview.roomBackgroundMesh.material.opacity, progress);
+      assert.equal(preview.roomContactShadow.material.opacity, progress);
+      assert.equal(preview.group, group);
+      assert.equal(draws.filter((scene) => scene === preview.scene).length, 1);
+      assert.equal(preview.renderer.autoClear, true);
+    }
+  } finally {
+    preview.clearModel();
+    preview.artwork.dispose();
+    preview.roomTexture.dispose();
+  }
+});
+
 test('room contact shadow follows the complete product bounds with transparent soft edges', () => {
   const bounds = new THREE.Box3(new THREE.Vector3(-12, -18, -.5), new THREE.Vector3(12, 18, .5));
   const shadow = buildRoomContactShadow(bounds);

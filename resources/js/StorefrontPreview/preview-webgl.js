@@ -54,6 +54,21 @@ export default class SpatialPreview {
     if (this.disposed) { texture.dispose(); return; }
     this.roomTexture?.dispose();
     this.roomTexture = texture;
+    this.roomBackground = new THREE.Scene();
+    this.roomBackgroundCamera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 2);
+    this.roomBackgroundCamera.position.z = 1;
+    this.roomBackgroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2),
+      new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }));
+    this.roomBackground.add(this.roomBackgroundMesh);
+  }
+
+  captureViewState() {
+    return {
+      position: this.camera.position.clone(), zoom: this.camera.zoom,
+      near: this.camera.near, far: this.camera.far, rotation: this.group?.rotation.clone(),
+      view: this.camera.view?.enabled ? { ...this.camera.view } : null,
+      roomMix: this.roomMix ?? 0,
+    };
   }
 
   update(selection, view, room, tilt, pixelWidth, pixelHeight, zoom = 1, focus = { x: 0, y: 0 }, viewport) {
@@ -94,9 +109,9 @@ export default class SpatialPreview {
       this.pixelHeight = renderHeight;
     }
     this.camera.aspect = renderWidth / renderHeight;
-    this.scene.background = room ? this.roomTexture ?? null : null;
+    this.scene.background = this.roomBackgroundMesh ? null : room ? this.roomTexture ?? null : null;
     if (this.wallShadow) this.wallShadow.visible = !this.roomTexture;
-    if (room && this.roomTexture) {
+    if (this.roomTexture) {
       const imageAspect = this.roomTexture.image.width / this.roomTexture.image.height;
       const aspect = renderWidth / renderHeight;
       this.roomTexture.repeat.set(Math.min(1, aspect / imageAspect), Math.min(1, imageAspect / aspect));
@@ -141,7 +156,38 @@ export default class SpatialPreview {
       this.camera.updateProjectionMatrix();
     }
     if (viewport && !room) this.inspectProjectedProduct(focus, renderWidth, renderHeight, zoom);
-    this.renderer.render(this.scene, this.camera);
+    const transition = viewport?.transition;
+    this.roomMix = room ? 1 : 0;
+    if (transition) {
+      const { from, progress } = transition;
+      this.camera.position.lerpVectors(from.position, this.camera.position.clone(), progress);
+      this.camera.zoom = THREE.MathUtils.lerp(from.zoom, this.camera.zoom, progress);
+      this.camera.near = THREE.MathUtils.lerp(from.near, this.camera.near, progress);
+      this.camera.far = THREE.MathUtils.lerp(from.far, this.camera.far, progress);
+      if (from.rotation) {
+        this.group.rotation.x = THREE.MathUtils.lerp(from.rotation.x, this.group.rotation.x, progress);
+        this.group.rotation.y = THREE.MathUtils.lerp(from.rotation.y, this.group.rotation.y, progress);
+      }
+      this.roomMix = THREE.MathUtils.lerp(from.roomMix, this.roomMix, progress);
+      const targetView = this.camera.view?.enabled ? this.camera.view : null;
+      if (from.view || targetView) {
+        this.camera.setViewOffset(renderWidth, renderHeight,
+          THREE.MathUtils.lerp(from.view?.offsetX ?? 0, targetView?.offsetX ?? 0, progress),
+          THREE.MathUtils.lerp(from.view?.offsetY ?? 0, targetView?.offsetY ?? 0, progress), renderWidth, renderHeight);
+      }
+      this.camera.updateProjectionMatrix();
+    }
+    if (this.roomContactShadow) this.roomContactShadow.material.opacity = this.roomMix;
+    if (this.roomBackgroundMesh) {
+      const autoClear = this.renderer.autoClear;
+      this.renderer.autoClear = false;
+      this.renderer.clear();
+      this.roomBackgroundMesh.material.opacity = this.roomMix;
+      if (this.roomMix > 0) this.renderer.render(this.roomBackground, this.roomBackgroundCamera);
+      this.renderer.clearDepth();
+      this.renderer.render(this.scene, this.camera);
+      this.renderer.autoClear = autoClear;
+    } else this.renderer.render(this.scene, this.camera);
   }
 
   inspectProjectedProduct(focus, width, height, zoom) {
@@ -206,6 +252,8 @@ export default class SpatialPreview {
     this.surfaceTexture?.dispose();
     this.hdr?.dispose();
     this.roomTexture?.dispose();
+    this.roomBackgroundMesh?.geometry.dispose();
+    this.roomBackgroundMesh?.material.dispose();
     this.environment?.dispose();
     this.renderer.dispose();
     this.renderer.forceContextLoss();

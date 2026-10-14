@@ -6,57 +6,24 @@ globalThis.cancelAnimationFrame = () => {};
 const { default: Preview } = await import('../../public/frame-up-preview/preview-runtime.js');
 const { PreviewInteraction, roomPreviewDimensions } = await import('../../public/frame-up-preview/preview-model.js');
 
-test('view changes crossfade the outgoing canvas and clean up safely during rapid toggles', async () => {
-  const originalDocument = globalThis.document;
-  const snapshots = [];
-  globalThis.document = {
-    createElement: () => {
-      let resolve;
-      const snapshot = {
-        setAttribute: () => {}, remove: () => { snapshot.removed = true; },
-        getContext: () => ({ fillRect: () => {}, drawImage: (canvas) => { snapshot.source = canvas; } }),
-        animate: (frames, settings) => {
-          snapshot.frames = frames;
-          snapshot.settings = settings;
-          snapshot.animation = { finished: new Promise((done) => { resolve = done; }), cancel: () => {} };
-          return snapshot.animation;
-        },
-        finish: () => resolve(),
-      };
-      snapshots.push(snapshot);
-      return snapshot;
-    },
-  };
+test('view changes interpolate from the current camera and reverse without an overlay or jump', () => {
   const preview = new Preview();
-  preview.spatial = { renderer: { domElement: { width: 1200, height: 1200 } } };
-  preview.stage = { append: () => {} };
+  let current = { zoom: 1, roomMix: 0 };
+  preview.spatial = { captureViewState: () => ({ ...current }) };
   preview.reducedMotion = { matches: false };
-  let redraws = 0;
-  preview.paintSpatial = () => { redraws++; };
-
-  try {
-    preview.beginViewTransition();
-    assert.equal(redraws, 1);
-    assert.equal(snapshots[0].source, preview.spatial.renderer.domElement);
-    assert.deepEqual(snapshots[0].frames, [{ opacity: 1 }, { opacity: 0 }]);
-    assert.equal(snapshots[0].settings.duration, 320);
-    assert.equal(snapshots[0].width, 1200);
-    preview.beginViewTransition();
-    assert.equal(snapshots[0].removed, true);
-    snapshots[0].finish();
-    await Promise.resolve();
-    assert.equal(preview.viewTransitionImage, snapshots[1], 'old completion cannot remove the new transition');
-    snapshots[1].finish();
-    await Promise.resolve();
-    assert.equal(snapshots[1].removed, true);
-    assert.equal(preview.viewTransitionImage, null);
-    preview.reducedMotion.matches = true;
-    preview.beginViewTransition();
-    assert.equal(snapshots.length, 2, 'reduced motion must switch views immediately');
-  } finally {
-    preview.clearViewTransition();
-    globalThis.document = originalDocument;
-  }
+  preview.beginViewTransition();
+  assert.deepEqual(preview.viewTransition.from, current);
+  assert.equal(preview.viewTransition.progress, 0);
+  for (let i = 0; i < 15; i++) preview.stepViewTransition(.016);
+  assert.ok(Math.abs(preview.viewTransition.progress - .5) < 1e-8);
+  current = { zoom: .8, roomMix: .5 };
+  preview.beginViewTransition();
+  assert.deepEqual(preview.viewTransition.from, current, 'reversal must start at the visible intermediate view');
+  for (let i = 0; i < 31; i++) preview.stepViewTransition(.016);
+  assert.equal(preview.viewTransition, null);
+  preview.reducedMotion.matches = true;
+  preview.beginViewTransition();
+  assert.equal(preview.viewTransition, null);
 });
 
 test('room artwork is enlarged proportionally and stays inside the clear wall area', () => {
@@ -139,7 +106,7 @@ test('exiting the inline magnifier returns smoothly to the cursor hover angle', 
   preview.toggleZoom({ target: { closest: () => null } });
   assert.equal(preview.zoom, 1);
   assert.deepEqual(preview.currentTilt, { x: 0, y: 0 });
-  assert.deepEqual(preview.targetTilt, { x: -3, y: 7.5 });
+  assert.deepEqual(preview.targetTilt, { x: 0, y: -7.5 });
   assert.equal(animated, true);
 });
 

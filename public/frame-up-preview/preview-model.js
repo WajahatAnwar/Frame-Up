@@ -12,7 +12,7 @@ export function roomPreviewDimensions(width, height, viewport, image, wallWidth 
 export class PreviewInteraction {
   constructor(values = {}) {
     this.settings = {
-      tiltX: clamp(number(values.tiltX, 6), 0, 20), tiltY: clamp(number(values.tiltY, 12), 0, 25),
+      tiltY: clamp(number(values.tiltY, 12), 0, 25),
       minZoom: clamp(number(values.minZoom, 1), .5, 1), maxZoom: clamp(number(values.maxZoom, 3), 1, 6),
       zoomSpeed: clamp(number(values.zoomSpeed, .002), .0001, .01),
       movement: clamp(number(values.movement, 1), 0, 1), damping: clamp(number(values.damping, 10), 1, 30),
@@ -51,8 +51,8 @@ export class PreviewInteraction {
   wheel(delta) { this.setZoom(this.target.zoom * Math.exp(-clamp(delta, -1000, 1000) * this.settings.zoomSpeed)); }
   updateTargets() {
     const zoomed = this.target.zoom > 1.001;
-    this.target.tiltX = zoomed ? 0 : this.pointerPosition.y * this.settings.tiltX;
-    this.target.tiltY = zoomed ? 0 : this.pointerPosition.x * this.settings.tiltY;
+    this.target.tiltX = 0;
+    this.target.tiltY = zoomed ? 0 : -this.pointerPosition.x * this.settings.tiltY || 0;
     this.target.panX = zoomed ? this.pointerPosition.x * this.settings.movement : 0;
     this.target.panY = zoomed ? this.pointerPosition.y * this.settings.movement : 0;
   }
