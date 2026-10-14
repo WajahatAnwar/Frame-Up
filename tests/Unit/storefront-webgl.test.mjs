@@ -6,6 +6,57 @@ import { disposePrint } from '../../resources/js/StorefrontPreview/print-model.j
 import { appearance } from '../../public/frame-up-preview/preview-model.js';
 import { buildRoomContactShadow } from '../../resources/js/StorefrontPreview/room-scene.js';
 
+test('matte rest and zoom keep the HDR-lit artwork material and crop while restoring gloss on hover', () => {
+  const preview = Object.create(SpatialPreview.prototype);
+  preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });
+  preview.environment = { texture: new THREE.Texture() };
+  preview.scene = new THREE.Scene();
+  preview.camera = new THREE.PerspectiveCamera(50, 1, .01, 1000);
+  preview.renderer = { setSize: () => {}, render: () => {} };
+  const selection = {
+    print: { surface: { id: 1, settings: { material_type: 'Metal', metal_thickness: .02 } } },
+    size: { option: '4x6', width: 4, height: 6 }, mount: { id: 2, settings: {} },
+  };
+  const view = appearance(selection);
+  const viewport = { width: 600, height: 600 };
+  try {
+    preview.update(selection, view, false, { x: 0, y: 12 }, 300, 450, 1, { x: 0, y: 0 }, viewport);
+    const image = preview.group.children.find((mesh) => mesh.userData.role === 'artwork');
+    const original = image.material;
+    const map = original.map;
+    const reflection = original.envMapIntensity;
+    const roughness = original.roughness;
+    const group = preview.group;
+    for (const zoom of [1, 3, 1]) {
+      preview.update(selection, view, false, { x: 0, y: 0 }, 300, 450, zoom, { x: 0, y: 0 }, { ...viewport, flatFinish: true });
+      assert.equal(image.material, original);
+      assert.equal(image.material.isMeshStandardMaterial, true);
+      assert.equal(image.material.toneMapped, true);
+      assert.equal(image.material.map, map);
+      assert.ok(image.material.color.equals(original.color));
+      assert.equal(original.envMapIntensity, reflection, 'matte artwork must retain HDR illumination');
+      assert.equal(original.roughness, 1);
+      assert.equal(original.metalness, 0);
+      assert.equal(original.bumpScale, 0);
+      assert.equal(preview.scene.environment, preview.environment.texture);
+      assert.equal(preview.group, group);
+    }
+    preview.update(selection, view, false, { x: 0, y: 12 }, 300, 450, 1, { x: 0, y: 0 }, viewport);
+    assert.equal(image.material, original);
+    assert.equal(original.envMapIntensity, reflection);
+    assert.equal(original.roughness, roughness);
+    const acrylic = { ...view, kind: 'acrylic' };
+    preview.update(selection, acrylic, false, { x: 0, y: 0 }, 300, 450, 3, { x: 0, y: 0 }, { ...viewport, flatFinish: true });
+    assert.equal(preview.glassMesh.visible, false, 'flat zoom must hide the glass reflection layer');
+    preview.update(selection, acrylic, false, { x: 0, y: 12 }, 300, 450, 1, { x: 0, y: 0 }, viewport);
+    assert.equal(preview.glassMesh.visible, true, 'hover must restore the glass reflection layer');
+  } finally {
+    preview.clearModel();
+    preview.artwork.dispose();
+    preview.environment.texture.dispose();
+  }
+});
+
 test('room transition interpolates camera placement and background without drawing a duplicate product', () => {
   const preview = Object.create(SpatialPreview.prototype);
   preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });

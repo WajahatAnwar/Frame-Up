@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=47';
+import * as model from './preview-model.js?v=49';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -477,6 +477,8 @@ export default class FrameUpPreview extends HTMLElement {
         centerY: clamp(number(this.dataset.roomCenterY, 38), 10, 70) / 100,
       } : { width: rect.width, height: rect.height };
       if (this.viewTransition) viewport.transition = this.viewTransition;
+      viewport.flatFinish = room || !this.interaction.pointerInside ||
+        this.interaction.target.zoom > 1.001 || state.zoom > 1.001;
       this.stage.dataset.zoomed = String(!room && state.zoom > 1.001);
       this.spatial.update(value.selection, value.appearance, room,
         this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },

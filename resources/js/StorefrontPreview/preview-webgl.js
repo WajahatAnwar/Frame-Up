@@ -78,6 +78,16 @@ export default class SpatialPreview {
     if (key !== this.key) {
       this.clearModel();
       this.group = buildPrint(width, height, view, this.artwork, this.surfaceTexture);
+      this.finishProfiles = new Map();
+      this.group.traverse((mesh) => {
+        for (const material of mesh.material ? (Array.isArray(mesh.material) ? mesh.material : [mesh.material]) : []) {
+          if (!this.finishProfiles.has(material)) this.finishProfiles.set(material, {
+            roughness: material.roughness, metalness: material.metalness,
+            bumpScale: material.bumpScale,
+          });
+        }
+        if (mesh.userData.role === 'glass') this.glassMesh = mesh;
+      });
       this.lights = sceneLights(width, height, room);
       this.scene.add(this.group, this.lights);
       const bounds = new THREE.Box3().setFromObject(this.group);
@@ -100,6 +110,7 @@ export default class SpatialPreview {
       this.key = key;
     }
     this.scene.environment = this.environment?.texture ?? null;
+    this.setFlatFinish(viewport?.flatFinish === true);
     const renderWidth = viewport?.width ?? pixelWidth;
     const renderHeight = viewport?.height ?? pixelHeight;
     if (renderWidth <= 0 || renderHeight <= 0) return;
@@ -216,6 +227,16 @@ export default class SpatialPreview {
     this.camera.setViewOffset(width, height, x, y, width, height);
   }
 
+  setFlatFinish(flat) {
+    if (!this.finishProfiles) return;
+    for (const [material, profile] of this.finishProfiles) {
+      if (profile.roughness !== undefined) material.roughness = flat ? 1 : profile.roughness;
+      if (profile.metalness !== undefined) material.metalness = flat ? 0 : profile.metalness;
+      if (profile.bumpScale !== undefined) material.bumpScale = flat ? 0 : profile.bumpScale;
+    }
+    if (this.glassMesh) this.glassMesh.visible = !flat;
+  }
+
   clearModel() {
     if (this.roomContactShadow) {
       this.scene.remove(this.roomContactShadow);
@@ -239,6 +260,8 @@ export default class SpatialPreview {
       this.scene.remove(this.group);
       disposePrint(this.group, [this.artwork, this.surfaceTexture]);
     }
+    this.finishProfiles = null;
+    this.glassMesh = null;
     if (this.lights) {
       this.scene.remove(this.lights);
       this.lights.traverse((light) => light.shadow?.map?.dispose());

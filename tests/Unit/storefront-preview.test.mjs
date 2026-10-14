@@ -6,6 +6,30 @@ globalThis.cancelAnimationFrame = () => {};
 const { default: Preview } = await import('../../public/frame-up-preview/preview-runtime.js');
 const { PreviewInteraction, roomPreviewDimensions } = await import('../../public/frame-up-preview/preview-model.js');
 
+test('finish effects are enabled only during normal 3D hover', () => {
+  const preview = new Preview();
+  preview.interaction = new PreviewInteraction();
+  preview.mode = 'spatial';
+  preview.hidden = false;
+  preview.reducedMotion = { matches: false };
+  preview.dataset = {};
+  preview.stage = { dataset: {}, getBoundingClientRect: () => ({ width: 600, height: 600 }) };
+  const finishes = [];
+  preview.spatial = { update: (...args) => finishes.push(args[8].flatFinish) };
+  preview.paintSpatial({}, {}, 300, 450);
+  preview.interaction.pointer(.5, 0);
+  preview.paintSpatial();
+  preview.interaction.setZoom(3);
+  preview.paintSpatial();
+  preview.interaction.setZoom(1);
+  preview.interaction.leave();
+  preview.paintSpatial();
+  preview.interaction.pointer(.5, 0);
+  preview.mode = 'room';
+  preview.paintSpatial();
+  assert.deepEqual(finishes, [true, false, true, true, true]);
+});
+
 test('view changes interpolate from the current camera and reverse without an overlay or jump', () => {
   const preview = new Preview();
   let current = { zoom: 1, roomMix: 0 };
@@ -64,7 +88,7 @@ test('the runtime damps zoom through animation frames while retaining a fixed vi
     assert.equal(preview.interaction.state.zoom, 1, 'wheel/click target must not jump the camera');
     for (let i = 0; frames.length && i < 300; i++) frames.shift()(i * 1000 / 60);
     assert.equal(preview.interaction.state.zoom, 3);
-    for (const draw of draws) assert.deepEqual(draw[8], { width: 600, height: 600 });
+    for (const draw of draws) assert.deepEqual(draw[8], { width: 600, height: 600, flatFinish: true });
     assert.ok(draws[1][6] > 1 && draws[1][6] < 3);
   } finally { globalThis.requestAnimationFrame = originalFrame; }
 });
@@ -411,5 +435,5 @@ test('a collapsed stage keeps the native image visible until a drawable layout i
   assert.equal(preview.interaction.state.zoom, 1);
   assert.equal(preview.interaction.state.panX, 0);
   assert.equal(painted.at(-1)[0].size.width, 8);
-  assert.deepEqual(painted.at(-1)[8], { width: 600, height: 600 });
+  assert.deepEqual(painted.at(-1)[8], { width: 600, height: 600, flatFinish: true });
 });

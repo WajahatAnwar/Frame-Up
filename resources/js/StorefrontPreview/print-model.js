@@ -35,6 +35,7 @@ export function buildPrint(width, height, view, artwork, surfaceTexture) {
   if (view.kind === 'acrylic') {
     const glass = new THREE.Mesh(new THREE.BoxGeometry(width, height, Math.max(.01, depth - .125)), new THREE.MeshPhysicalMaterial({ color: '#ffffff', roughness: .04, transmission: .95, thickness: depth, ior: 1.49, transparent: true, opacity: .18, envMapIntensity: view.reflection }));
     glass.position.z = depth / 2 + .01;
+    glass.userData.role = 'glass';
     group.add(glass);
   }
   if (view.kind === 'canvas' && view.wrapStyle === 'mirror') {

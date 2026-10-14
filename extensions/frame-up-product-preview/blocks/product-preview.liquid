@@ -9,8 +9,8 @@
     data-room-scale="{{ block.settings.room_scale | default: 200 | divided_by: 100.0 }}"
     data-room-center-x="{{ block.settings.room_center_x }}"
     data-room-center-y="{{ block.settings.room_center_y }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=47' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=47' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=49' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=49' | escape }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
     data-max-zoom="{{ block.settings.max_zoom | divided_by: 100.0 }}"
@@ -77,14 +77,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=47`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=49`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=47`;
+        script.src = `${proxy}/assets/product-preview.js?v=49`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {

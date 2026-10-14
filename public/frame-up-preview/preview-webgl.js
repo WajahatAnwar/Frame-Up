@@ -10626,7 +10626,7 @@ function Gs(e, t, n, r, i) {
 			opacity: .18,
 			envMapIntensity: n.reflection
 		}));
-		r.position.z = o / 2 + .01, a.add(r);
+		r.position.z = o / 2 + .01, r.userData.role = "glass", a.add(r);
 	}
 	if (n.kind === "canvas" && n.wrapStyle === "mirror") {
 		for (let [n, i] of [
@@ -10818,7 +10818,14 @@ var Xs = class {
 			n
 		]), u = Number(e.size.width), d = Number(e.size.height);
 		if (l !== this.key) {
-			this.clearModel(), this.group = Gs(u, d, t, this.artwork, this.surfaceTexture), this.lights = Us(u, d, n), this.scene.add(this.group, this.lights);
+			this.clearModel(), this.group = Gs(u, d, t, this.artwork, this.surfaceTexture), this.finishProfiles = /* @__PURE__ */ new Map(), this.group.traverse((e) => {
+				for (let t of e.material ? Array.isArray(e.material) ? e.material : [e.material] : []) this.finishProfiles.has(t) || this.finishProfiles.set(t, {
+					roughness: t.roughness,
+					metalness: t.metalness,
+					bumpScale: t.bumpScale
+				});
+				e.userData.role === "glass" && (this.glassMesh = e);
+			}), this.lights = Us(u, d, n), this.scene.add(this.group, this.lights);
 			let e = new Be().setFromObject(this.group);
 			this.modelBounds = e.clone(), this.modelCenter = e.getCenter(new J()), this.modelSize = e.getSize(new J());
 			let r = e.getBoundingSphere(new it());
@@ -10827,7 +10834,7 @@ var Xs = class {
 				depthWrite: !1
 			})), this.wallShadow.position.set(this.modelCenter.x, this.modelCenter.y, e.min.z - .05), this.wallShadow.receiveShadow = !0, this.scene.add(this.wallShadow)), this.key = l;
 		}
-		this.scene.environment = this.environment?.texture ?? null;
+		this.scene.environment = this.environment?.texture ?? null, this.setFlatFinish(c?.flatFinish === !0);
 		let f = c?.width ?? i, p = c?.height ?? a;
 		if (f <= 0 || p <= 0) return;
 		if ((f !== this.pixelWidth || p !== this.pixelHeight) && (this.renderer.setSize(f, p, !1), this.pixelWidth = f, this.pixelHeight = p), this.camera.aspect = f / p, this.scene.background = this.roomBackgroundMesh ? null : n ? this.roomTexture ?? null : null, this.wallShadow && (this.wallShadow.visible = !this.roomTexture), this.roomTexture) {
@@ -10866,8 +10873,14 @@ var Xs = class {
 		let o = i.getSize(new H()), s = i.getCenter(new H()), c = V.clamp((r - 1) / .5, 0, 1), l = Math.max(0, (o.x - Math.min(o.x / r, t * .35)) / 2) * c, u = Math.max(0, (o.y - Math.min(o.y / r, n * .35)) / 2) * c, d = (s.x - t / 2) * c + V.clamp(e.x, -1, 1) * l, f = (s.y - n / 2) * c - V.clamp(e.y, -1, 1) * u;
 		this.camera.setViewOffset(t, n, d, f, t, n);
 	}
+	setFlatFinish(e) {
+		if (this.finishProfiles) {
+			for (let [t, n] of this.finishProfiles) n.roughness !== void 0 && (t.roughness = e ? 1 : n.roughness), n.metalness !== void 0 && (t.metalness = e ? 0 : n.metalness), n.bumpScale !== void 0 && (t.bumpScale = e ? 0 : n.bumpScale);
+			this.glassMesh && (this.glassMesh.visible = !e);
+		}
+	}
 	clearModel() {
-		this.roomContactShadow &&= (this.scene.remove(this.roomContactShadow), this.roomContactShadow.geometry.dispose(), this.roomContactShadow.material.map.dispose(), this.roomContactShadow.material.dispose(), null), this.roomScene &&= (this.scene.remove(this.roomScene), Js(this.roomScene), null), this.wallShadow &&= (this.scene.remove(this.wallShadow), this.wallShadow.geometry.dispose(), this.wallShadow.material.dispose(), null), this.group && (this.scene.remove(this.group), Ks(this.group, [this.artwork, this.surfaceTexture])), this.lights && (this.scene.remove(this.lights), this.lights.traverse((e) => e.shadow?.map?.dispose()));
+		this.roomContactShadow &&= (this.scene.remove(this.roomContactShadow), this.roomContactShadow.geometry.dispose(), this.roomContactShadow.material.map.dispose(), this.roomContactShadow.material.dispose(), null), this.roomScene &&= (this.scene.remove(this.roomScene), Js(this.roomScene), null), this.wallShadow &&= (this.scene.remove(this.wallShadow), this.wallShadow.geometry.dispose(), this.wallShadow.material.dispose(), null), this.group && (this.scene.remove(this.group), Ks(this.group, [this.artwork, this.surfaceTexture])), this.finishProfiles = null, this.glassMesh = null, this.lights && (this.scene.remove(this.lights), this.lights.traverse((e) => e.shadow?.map?.dispose()));
 	}
 	dispose() {
 		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.roomTexture?.dispose(), this.roomBackgroundMesh?.geometry.dispose(), this.roomBackgroundMesh?.material.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove();
