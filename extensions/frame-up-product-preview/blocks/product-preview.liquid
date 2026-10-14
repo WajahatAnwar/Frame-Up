@@ -7,8 +7,8 @@
     data-room-width="65"
     data-room-scene="image"
     data-room-scale="2"
-    data-room-center-x="47"
-    data-room-center-y="38"
+    data-room-center-x="{{ block.settings.room_center_x | default: 47 }}"
+    data-room-center-y="{{ block.settings.room_center_y | default: 38 }}"
     data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=49' | escape }}"
     data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=49' | escape }}"
     data-tilt-y="12"
@@ -106,8 +106,6 @@
     { "type": "range", "id": "procedural_room_width", "label": "Default room wall width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
     { "type": "range", "id": "room_scale", "label": "Artwork scale in room", "unit": "%", "min": 75, "max": 200, "step": 5, "default": 200 },
     { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
-    { "type": "range", "id": "room_center_x", "label": "Artwork horizontal position", "unit": "%", "min": 10, "max": 90, "step": 1, "default": 47 },
-    { "type": "range", "id": "room_center_y", "label": "Artwork vertical position", "unit": "%", "min": 10, "max": 70, "step": 1, "default": 38 },
 {% endcomment %}
 
 {% schema %}
@@ -117,6 +115,8 @@
   "enabled_on": { "templates": ["product"] },
   "settings": [
     { "type": "image_picker", "id": "room_image", "label": "Room background" },
+    { "type": "range", "id": "room_center_x", "label": "Artwork horizontal position", "unit": "%", "min": 10, "max": 90, "step": 1, "default": 47 },
+    { "type": "range", "id": "room_center_y", "label": "Artwork vertical position", "unit": "%", "min": 10, "max": 70, "step": 1, "default": 38 },
     { "type": "text", "id": "proxy_path", "label": "App proxy URL path", "default": "/apps/frame-up", "info": "If you customize the App Proxy URL in Shopify admin, enter the same path here (for example, /tools/art-preview) and save." },
     { "type": "text", "id": "media_selector", "label": "Product media CSS selector", "info": "Optional for custom themes. Leave empty to detect the product gallery automatically." }
   ]
