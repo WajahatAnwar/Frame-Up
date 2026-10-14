@@ -1,7 +1,7 @@
 export const number = (value, fallback) => Number.isFinite(Number(value)) && value !== null && value !== '' ? Number(value) : fallback;
 export const clamp = (value, min, max) => Math.min(max, Math.max(min, value));
 
-export function roomPreviewDimensions(width, height, viewport, image, wallWidth = 65, scale = 1.75) {
+export function roomPreviewDimensions(width, height, viewport, image, wallWidth = 65, scale = 2) {
   const coverWidth = Math.max(viewport.width / image.width, viewport.height / image.height) * image.width;
   const desiredWidth = coverWidth * width / Math.max(1, wallWidth) * scale;
   const desiredHeight = desiredWidth * height / width;

@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=46';
+import * as model from './preview-model.js?v=47';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -401,7 +401,7 @@ export default class FrameUpPreview extends HTMLElement {
     const roomImageHeight = this.dataset.roomScene === 'procedural' ? rect.height : this.roomImage?.naturalHeight || rect.height;
     const roomDimensions = room ? model.roomPreviewDimensions(width, height, rect,
       { width: roomImageWidth, height: roomImageHeight }, number(this.dataset.roomWidth, 65),
-      clamp(number(this.dataset.roomScale, 1.75), .75, 2)) : null;
+      clamp(number(this.dataset.roomScale, 2), .75, 2)) : null;
     let objectWidth = room ? roomDimensions.width : rect.width * .69 * spatialScale;
     let objectHeight = objectWidth / aspect;
     const maxHeight = rect.height * (room ? .55 : .78);

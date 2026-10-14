@@ -30,8 +30,11 @@ test('room artwork is enlarged proportionally and stays inside the clear wall ar
   const viewport = { width: 760, height: 760 };
   const image = { width: 1254, height: 1254 };
   const square = roomPreviewDimensions(16, 16, viewport, image);
-  assert.equal(Math.round(square.width), 327);
-  assert.equal(Math.round(square.height), 327);
+  assert.equal(Math.round(square.width), 374);
+  assert.equal(Math.round(square.height), 374);
+  const small = roomPreviewDimensions(4, 6, viewport, image);
+  assert.equal(Math.round(small.width), 94);
+  assert.equal(Math.round(small.height), 140);
   const portrait = roomPreviewDimensions(24, 36, viewport, image);
   assert.equal(Math.round(portrait.width), 279);
   assert.equal(Math.round(portrait.height), 418);
@@ -39,7 +42,7 @@ test('room artwork is enlarged proportionally and stays inside the clear wall ar
   assert.equal(Math.round(landscape.width), 517);
   assert.equal(Math.round(landscape.height), 258);
   const original = roomPreviewDimensions(16, 16, viewport, image, 65, 1);
-  assert.ok(Math.abs(square.width / original.width - 1.75) < 1e-8);
+  assert.ok(Math.abs(square.width / original.width - 2) < 1e-8);
 });
 
 test('the runtime damps zoom through animation frames while retaining a fixed viewport', () => {

@@ -6,11 +6,11 @@
     data-media-selector="{{ block.settings.media_selector | escape }}"
     data-room-width="{% if block.settings.room_image != blank %}{{ block.settings.room_width }}{% else %}{{ block.settings.procedural_room_width | default: 65 }}{% endif %}"
     data-room-scene="image"
-    data-room-scale="{{ block.settings.room_scale | default: 175 | divided_by: 100.0 }}"
+    data-room-scale="{{ block.settings.room_scale | default: 200 | divided_by: 100.0 }}"
     data-room-center-x="{{ block.settings.room_center_x }}"
     data-room-center-y="{{ block.settings.room_center_y }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=46' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=46' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=47' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=47' | escape }}"
     data-tilt-y="{{ block.settings.tilt_y }}"
     data-min-zoom="{{ block.settings.min_zoom | divided_by: 100.0 }}"
     data-max-zoom="{{ block.settings.max_zoom | divided_by: 100.0 }}"
@@ -77,14 +77,14 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=46`;
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=47`;
         await new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
         const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=46`;
+        script.src = `${proxy}/assets/product-preview.js?v=47`;
         script.defer = true;
         document.head.append(script);
       } catch (error) {
@@ -109,7 +109,7 @@
     { "type": "paragraph", "content": "Shows a spatial artwork preview only on products successfully linked to a Frame Up configuration. Your theme controls sizes, variants and checkout." },
     { "type": "image_picker", "id": "room_image", "label": "Room background" },
     { "type": "range", "id": "procedural_room_width", "label": "Default room wall width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
-    { "type": "range", "id": "room_scale", "label": "Artwork scale in room", "unit": "%", "min": 75, "max": 200, "step": 5, "default": 175 },
+    { "type": "range", "id": "room_scale", "label": "Artwork scale in room", "unit": "%", "min": 75, "max": 200, "step": 5, "default": 200 },
     { "type": "range", "id": "room_width", "label": "Room scene width", "unit": "in", "min": 60, "max": 240, "step": 5, "default": 65 },
     { "type": "range", "id": "room_center_x", "label": "Artwork horizontal position", "unit": "%", "min": 10, "max": 90, "step": 1, "default": 47 },
     { "type": "range", "id": "room_center_y", "label": "Artwork vertical position", "unit": "%", "min": 10, "max": 70, "step": 1, "default": 38 },
