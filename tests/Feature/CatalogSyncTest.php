@@ -60,6 +60,17 @@ class CatalogSyncTest extends TestCase
         $this->assertContains('verify.shopify', $route->middleware());
     }
 
+    public function test_command_queues_a_catalog_pull(): void
+    {
+        Queue::fake([PullCatalogFrom3dFrames::class]);
+
+        $this->artisan('catalog:pull')
+            ->expectsOutput('Catalog pull queued.')
+            ->assertSuccessful();
+
+        Queue::assertPushed(PullCatalogFrom3dFrames::class, fn (PullCatalogFrom3dFrames $job): bool => $job->uniqueId() === 'global-catalog');
+    }
+
     public function test_pull_copies_all_catalog_relationships_and_can_run_again(): void
     {
         config()->set('services.frame_up_source.url', 'https://source.example');
