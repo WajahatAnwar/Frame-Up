@@ -294,6 +294,20 @@ test('clicking artwork toggles close-up zoom without affecting the room button',
   assert.equal(preview.zoom, 2);
 });
 
+test('theme picker replacements are filtered immediately before the deferred preview redraw', () => {
+  const preview = new Preview();
+  const calls = [];
+  preview.contains = (target) => target === preview;
+  preview.readOptions = () => calls.push('read');
+  preview.filterPrintTypeOptions = () => calls.push('filter');
+  preview.render = () => calls.push('render');
+  preview.onThemeMutation([{ target: preview }]);
+  assert.deepEqual(calls, []);
+  preview.onThemeMutation([{ target: {} }]);
+  clearTimeout(preview.changeTimer);
+  assert.deepEqual(calls, ['read', 'filter']);
+});
+
 test('changing print type resets choices while leaving all theme sizes visible', () => {
   const preview = new Preview();
   preview.product = { optionNames: ['Print Type', 'Sizes', 'Mounts and Frames'] };

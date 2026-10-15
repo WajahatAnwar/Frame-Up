@@ -153,11 +153,7 @@ export default class FrameUpPreview extends HTMLElement {
     this.listen(document, 'shopify:product:select', (event) => this.onProductSelect(event));
     // Dawn replaces variant-selects asynchronously, briefly keeping both the old
     // and new selectors in the DOM. Reconcile again when that update completes.
-    this.themeObserver = new MutationObserver((records) => {
-      if (!records.some((record) => !this.contains(record.target))) return;
-      clearTimeout(this.changeTimer);
-      this.changeTimer = setTimeout(() => { this.readOptions(); this.filterPrintTypeOptions(); this.render(); }, 80);
-    });
+    this.themeObserver = new MutationObserver((records) => this.onThemeMutation(records));
     this.themeObserver.observe(this.scope, { childList: true, subtree: true });
     for (const eventName of ['variant:change', 'variant-change', 'product:variant-change', 'product:change']) {
       this.listen(document, eventName, (event) => {
@@ -279,6 +275,14 @@ export default class FrameUpPreview extends HTMLElement {
       y: clamp(1 - (event.clientY - rect.top) / rect.height * 2, -1, 1),
     };
     this.interaction?.pointer(this.zoomFocus.x, this.zoomFocus.y);
+  }
+
+  onThemeMutation(records) {
+    if (!records.some((record) => !this.contains(record.target))) return;
+    this.readOptions();
+    this.filterPrintTypeOptions();
+    clearTimeout(this.changeTimer);
+    this.changeTimer = setTimeout(() => this.render(), 80);
   }
 
   optionName(control) {
