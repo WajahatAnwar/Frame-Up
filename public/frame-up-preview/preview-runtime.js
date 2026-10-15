@@ -353,11 +353,14 @@ export default class FrameUpPreview extends HTMLElement {
     if (this.findPreviewGallery) return this.findPreviewGallery();
     const main = document.querySelector('main') || document;
     if (this.dataset.mediaSelector) {
-      try { return main.querySelector(this.dataset.mediaSelector); } catch { return null; }
+      try {
+        const element = main.querySelector(this.dataset.mediaSelector);
+        return element?.closest('[data-product-media-wrapper]') || element;
+      } catch { return null; }
     }
     // Horizon replaces media-gallery on every selection. Its surrounding media
     // column remains mounted, so the preview must live outside that element.
-    for (const selector of ['.product__media-wrapper', '.product-information__media', '[data-testid="product-information-media"]', '[data-product-media-gallery]', 'media-gallery', '[id^="MediaGallery-"]', '.product-gallery', '.product-media']) {
+    for (const selector of ['[data-product-media-wrapper]', '.product__media-wrapper', '.product-information__media', '[data-testid="product-information-media"]', '[data-product-media-gallery]', 'media-gallery', '[id^="MediaGallery-"]', '.product-gallery', '.product-media']) {
       const element = main.querySelector(selector);
       if (element && !this.contains(element)) return element;
     }

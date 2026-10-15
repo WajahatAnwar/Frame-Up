@@ -397,6 +397,15 @@ test('Horizon mounts in the stable media column outside the replaced media-galle
   assert.equal(preview.findGallery(), column);
 });
 
+test('Flow custom desktop gallery selector mounts in the shared desktop and mobile media wrapper', () => {
+  const preview = new Preview();
+  const wrapper = {};
+  const gallery = { closest: (selector) => selector === '[data-product-media-wrapper]' ? wrapper : null };
+  preview.dataset = { mediaSelector: '.product-media--grid-wrapper' };
+  globalThis.document = { querySelector: () => ({ querySelector: () => gallery }) };
+  assert.equal(preview.findGallery(), wrapper);
+});
+
 test('Horizon initial variant JSON selects the configured surface, size and mount', () => {
   const preview = new Preview();
   const variant = { id: 46083452797063, options: ['HD Metal - White Satin', '4x6', '2.5" Acrylic Stand'] };

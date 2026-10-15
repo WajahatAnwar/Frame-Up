@@ -15,7 +15,7 @@
     data-room-scale="2"
     data-room-center-x="{{ block.settings.room_center_x | default: 47 }}"
     data-room-center-y="{{ block.settings.room_center_y | default: 38 }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=55' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=56' | escape }}"
     data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=54' | escape }}"
     data-tilt-y="15"
     data-min-zoom="1"
@@ -69,13 +69,14 @@
       if (!host || host.dataset.loading) return;
       host.dataset.loading = 'true';
       let previewStarted = false;
-      let loader, gallery, loaderTarget, loadingTimer, originalPosition, originalBusy;
+      let loader, gallery, loaderTarget, loadingTimer, originalPosition, originalDisplay, originalBusy;
       host.finishLoading = () => {
         clearTimeout(loadingTimer);
         loader?.remove();
         loader = null;
         if (gallery) {
           if (originalPosition !== undefined && loaderTarget) loaderTarget.style.position = originalPosition;
+          if (originalDisplay !== undefined && loaderTarget) loaderTarget.style.display = originalDisplay;
           if (originalBusy === null) gallery.removeAttribute('aria-busy');
           else gallery.setAttribute('aria-busy', originalBusy);
           gallery = null;
@@ -85,13 +86,13 @@
       host.findPreviewGallery = () => {
         const main = document.querySelector('main') || document;
         const selectors = host.dataset.mediaSelector ? [host.dataset.mediaSelector] : [
-          '.product__media-wrapper', '.product-information__media', '[data-testid="product-information-media"]',
+          '[data-product-media-wrapper]', '.product__media-wrapper', '.product-information__media', '[data-testid="product-information-media"]',
           '[data-product-media-gallery]', 'media-gallery', '[id^="MediaGallery-"]', '.product-gallery', '.product-media',
         ];
         for (const selector of selectors) {
           try {
             const element = main.querySelector(selector);
-            if (element && !host.contains(element)) return element;
+            if (element && !host.contains(element)) return element.closest('[data-product-media-wrapper]') || element;
           } catch { return null; }
         }
         return null;
@@ -106,6 +107,7 @@
           originalBusy = gallery.getAttribute('aria-busy');
           gallery.setAttribute('aria-busy', 'true');
           const mediaSelectors = [
+            '[data-media-main]',
             '.product__media-item.is-active .product__media', '.product__media-item.is-active',
             '.product-media-container', '.product__media-item .product__media',
             '.product__media-item', '.product__media', '[data-media-id]', '.product-media',
@@ -118,6 +120,10 @@
             if (loaderTarget) break;
           }
           loaderTarget ||= gallery;
+          if (getComputedStyle(loaderTarget).display === 'inline') {
+            originalDisplay = loaderTarget.style.display;
+            loaderTarget.style.display = 'block';
+          }
           if (getComputedStyle(loaderTarget).position === 'static') {
             originalPosition = loaderTarget.style.position;
             loaderTarget.style.position = 'relative';
