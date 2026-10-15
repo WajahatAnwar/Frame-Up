@@ -40,10 +40,20 @@ test('clicked magnifier zooms out on exit, resumes on entry, and second click re
   assert.equal(interaction.magnifierEnabled, false);
 });
 
-test('centered hover leaves the resting orientation unchanged', () => {
+test('centered hover lifts smoothly without changing the resting orientation', () => {
   const interaction = new PreviewInteraction();
   interaction.pointer(0, 0);
-  assert.equal(interaction.step(1 / 60), false);
+  assert.equal(interaction.step(1 / 60), true);
+  assert.ok(interaction.state.hoverLift > 0 && interaction.state.hoverLift < 1);
+  settle(interaction);
+  assert.equal(interaction.state.hoverLift, 1);
+  interaction.leave();
+  assert.equal(interaction.step(1 / 60), true);
+  assert.ok(interaction.state.hoverLift > 0 && interaction.state.hoverLift < 1);
+  settle(interaction);
+  assert.equal(interaction.state.hoverLift, 0);
+  interaction.pointer(0, 0);
+  settle(interaction);
   assert.equal(interaction.state.tiltY, 0);
   interaction.setZoom(3);
   assert.equal(interaction.step(1 / 60), true);
@@ -125,5 +135,5 @@ test('settings control tilt, movement, zoom and responsiveness; reset clears var
   settle(interaction);
   assert.equal(interaction.state.zoom, .75);
   interaction.reset();
-  assert.deepEqual(interaction.state, { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0 });
+  assert.deepEqual(interaction.state, { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0, hoverLift: 0 });
 });

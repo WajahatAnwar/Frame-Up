@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=49';
+import * as model from './preview-model.js?v=53';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {
@@ -501,6 +501,7 @@ export default class FrameUpPreview extends HTMLElement {
       if (this.viewTransition) viewport.transition = this.viewTransition;
       viewport.flatFinish = room || !this.interaction.pointerInside ||
         this.interaction.target.zoom > 1.001 || state.zoom > 1.001;
+      viewport.hoverLift = room || this.reducedMotion.matches ? 0 : state.hoverLift;
       this.stage.dataset.zoomed = String(!room && state.zoom > 1.001);
       this.spatial.update(value.selection, value.appearance, room,
         this.reducedMotion.matches ? { x: 0, y: 0 } : { x: state.tiltX, y: state.tiltY },

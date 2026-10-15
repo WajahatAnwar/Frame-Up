@@ -157,6 +157,7 @@ export default class SpatialPreview {
       this.roomTexture.offset.set((1 - this.roomTexture.repeat.x) / 2, (1 - this.roomTexture.repeat.y) / 2);
     }
     this.camera.zoom = room && viewport ? 1 : viewport ? Math.max(.1, zoom * pixelHeight / renderHeight) : THREE.MathUtils.clamp(zoom, 1, 3);
+    if (!room) this.camera.zoom *= 1 + .08 * THREE.MathUtils.clamp(viewport?.hoverLift ?? 0, 0, 1);
     const size = this.modelSize;
     const fitHeight = Math.max(size.y, size.x / (pixelWidth / pixelHeight));
     const visibleHeight = room && viewport ? fitHeight * renderHeight / pixelHeight : fitHeight;

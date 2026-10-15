@@ -112,6 +112,9 @@ test('matte rest and zoom keep the HDR-lit artwork material and crop while resto
     assert.equal(image.material, original);
     assert.equal(original.envMapIntensity, reflection);
     assert.equal(original.roughness, roughness);
+    preview.update(selection, view, false, { x: 0, y: 12 }, 300, 450, 1, { x: 0, y: 0 }, { ...viewport, hoverLift: 1 });
+    assert.ok(Math.abs(preview.camera.zoom - .81) < 1e-8, 'hover enlarges the entire product by 8% without entering magnifier mode');
+    assert.equal(preview.group, group);
     const acrylic = { ...view, kind: 'acrylic' };
     preview.update(selection, acrylic, false, { x: 0, y: 0 }, 300, 450, 3, { x: 0, y: 0 }, { ...viewport, flatFinish: true });
     assert.equal(preview.glassMesh.visible, false, 'flat zoom must hide the glass reflection layer');
@@ -241,7 +244,8 @@ test('room artwork fits the requested size and stays anchored on the wall withou
   preview.roomTexture = new THREE.Texture({ width: 1200, height: 800 });
 
   try {
-    preview.update(selection, view, true, { x: 6, y: 12 }, 240, 360, 1, { x: 1, y: -1 }, { width: 600, height: 600, centerX: .47, centerY: .38 });
+    preview.update(selection, view, true, { x: 6, y: 12 }, 240, 360, 1, { x: 1, y: -1 }, { width: 600, height: 600, centerX: .47, centerY: .38, hoverLift: 1 });
+    assert.equal(preview.camera.zoom, 1, 'hover lift must not enlarge room view');
     preview.camera.updateMatrixWorld();
     const center = preview.modelCenter.clone().project(preview.camera);
     assert.ok(Math.abs(center.x - (-.06)) < 1e-8);

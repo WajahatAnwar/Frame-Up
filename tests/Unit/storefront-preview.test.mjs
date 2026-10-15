@@ -154,7 +154,7 @@ test('the runtime damps zoom through animation frames while retaining a fixed vi
     assert.equal(preview.interaction.state.zoom, 1, 'wheel/click target must not jump the camera');
     for (let i = 0; frames.length && i < 300; i++) frames.shift()(i * 1000 / 60);
     assert.equal(preview.interaction.state.zoom, 3);
-    for (const draw of draws) assert.deepEqual(draw[8], { width: 600, height: 600, flatFinish: true });
+    for (const draw of draws) assert.deepEqual(draw[8], { width: 600, height: 600, flatFinish: true, hoverLift: 0 });
     assert.ok(draws[1][6] > 1 && draws[1][6] < 3);
   } finally { globalThis.requestAnimationFrame = originalFrame; }
 });
@@ -501,5 +501,5 @@ test('a collapsed stage keeps the native image visible until a drawable layout i
   assert.equal(preview.interaction.state.zoom, 1);
   assert.equal(preview.interaction.state.panX, 0);
   assert.equal(painted.at(-1)[0].size.width, 8);
-  assert.deepEqual(painted.at(-1)[8], { width: 600, height: 600, flatFinish: true });
+  assert.deepEqual(painted.at(-1)[8], { width: 600, height: 600, flatFinish: true, hoverLift: 0 });
 });

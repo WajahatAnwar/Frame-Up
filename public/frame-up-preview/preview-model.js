@@ -24,7 +24,7 @@ export class PreviewInteraction {
     this.pointerInside = false;
     this.magnifierZoom = this.settings.maxZoom;
     this.pointerPosition = { x: 0, y: 0 };
-    this.state = { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0 };
+    this.state = { tiltX: 0, tiltY: 0, zoom: 1, panX: 0, panY: 0, hoverLift: 0 };
     this.target = { ...this.state };
   }
   pointer(x, y) {
@@ -51,6 +51,7 @@ export class PreviewInteraction {
   wheel(delta) { this.setZoom(this.target.zoom * Math.exp(-clamp(delta, -1000, 1000) * this.settings.zoomSpeed)); }
   updateTargets() {
     const zoomed = this.target.zoom > 1.001;
+    this.target.hoverLift = this.pointerInside && !zoomed ? 1 : 0;
     this.target.tiltX = 0;
     this.target.tiltY = zoomed ? 0 : -this.pointerPosition.x * this.settings.tiltY || 0;
     this.target.panX = zoomed ? this.pointerPosition.x * this.settings.movement : 0;
