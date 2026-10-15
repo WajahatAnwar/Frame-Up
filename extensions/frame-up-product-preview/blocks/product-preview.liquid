@@ -1,7 +1,7 @@
 {% if request.page_type == 'product' and product != blank and product.featured_image != blank %}
   {% assign preview_assets = block.settings.proxy_path | default: '/apps/frame-up' | append: '/assets/' %}
   <style>
-    .frame-up-loading { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; background: #ffffffd9; color: #454545; font: inherit; font-size: 14px; text-align: center; pointer-events: none; }
+    .frame-up-loading { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; gap: 14px; padding: 24px; background: #ffffffd9; color: #454545; font: inherit; font-size: 14px; text-align: center; pointer-events: auto; cursor: progress; }
     .frame-up-loading::before { content: ''; width: 26px; height: 26px; border: 2px solid #d6d6d6; border-top-color: #454545; border-radius: 50%; animation: frame-up-loading-spin 800ms linear infinite; }
     @keyframes frame-up-loading-spin { to { transform: rotate(360deg); } }
     @media (prefers-reduced-motion: reduce) { .frame-up-loading::before { animation: none; } }
@@ -69,16 +69,17 @@
       if (!host || host.dataset.loading) return;
       host.dataset.loading = 'true';
       let previewStarted = false;
-      let loader, gallery, loadingTimer, originalPosition, originalBusy;
+      let loader, gallery, loaderTarget, loadingTimer, originalPosition, originalBusy;
       host.finishLoading = () => {
         clearTimeout(loadingTimer);
         loader?.remove();
         loader = null;
         if (gallery) {
-          if (originalPosition !== undefined) gallery.style.position = originalPosition;
+          if (originalPosition !== undefined && loaderTarget) loaderTarget.style.position = originalPosition;
           if (originalBusy === null) gallery.removeAttribute('aria-busy');
           else gallery.setAttribute('aria-busy', originalBusy);
           gallery = null;
+          loaderTarget = null;
         }
       };
       host.findPreviewGallery = () => {
@@ -104,16 +105,35 @@
         if (gallery) {
           originalBusy = gallery.getAttribute('aria-busy');
           gallery.setAttribute('aria-busy', 'true');
-          if (getComputedStyle(gallery).position === 'static') {
-            originalPosition = gallery.style.position;
-            gallery.style.position = 'relative';
+          const mediaSelectors = [
+            '.product__media-item.is-active .product__media', '.product__media-item.is-active',
+            '.product-media-container', '.product__media-item .product__media',
+            '.product__media-item', '.product__media', '[data-media-id]', '.product-media',
+          ];
+          for (const selector of mediaSelectors) {
+            loaderTarget = [...gallery.querySelectorAll(selector)].find((element) => {
+              const rect = element.getBoundingClientRect();
+              return rect.width > 0 && rect.height > 0;
+            });
+            if (loaderTarget) break;
+          }
+          loaderTarget ||= gallery;
+          if (getComputedStyle(loaderTarget).position === 'static') {
+            originalPosition = loaderTarget.style.position;
+            loaderTarget.style.position = 'relative';
           }
           loader = document.createElement('div');
           loader.className = 'frame-up-loading';
           loader.setAttribute('role', 'status');
           loader.setAttribute('aria-live', 'polite');
           loader.textContent = 'Loading product configuration…';
-          gallery.append(loader);
+          for (const eventName of ['click', 'dblclick', 'pointerdown', 'pointerup', 'touchend']) {
+            loader.addEventListener(eventName, (event) => {
+              event.preventDefault();
+              event.stopPropagation();
+            }, { passive: false });
+          }
+          loaderTarget.append(loader);
           loadingTimer = setTimeout(host.finishLoading, 20000);
         }
         const query = new URLSearchParams({ product_id: product.id, product_type: product.type });
