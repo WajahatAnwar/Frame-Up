@@ -18,3 +18,8 @@ redirect_urls = [
 
 [webhooks]
 api_version = "2026-10"
+
+[app_proxy]
+url = "/storefront"
+prefix = "apps"
+subpath = "frame-up"
