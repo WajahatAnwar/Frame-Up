@@ -282,7 +282,7 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   optionName(control) {
-    return control.dataset?.optionName || control.closest('fieldset')?.querySelector('legend')?.textContent.trim().replace(/:\s*$/, '')
+    return control.dataset?.optionName || control.closest('[data-option]')?.dataset?.option || control.closest('fieldset')?.querySelector('legend')?.textContent.trim().replace(/:\s*$/, '')
       || this.product.optionNames.find((name, index) => [name, `options[${name}]`, `${name}-${index + 1}`].includes(control.name?.trim()));
   }
 
@@ -386,8 +386,7 @@ export default class FrameUpPreview extends HTMLElement {
       const inputs = [...this.scope.querySelectorAll('select, input[type="radio"]')];
       const control = inputs.find((input) => {
         if (input.type === 'radio' && !input.checked) return false;
-        const legend = input.closest('fieldset')?.querySelector('legend')?.textContent.trim().replace(/:\s*$/, '');
-        return input.dataset?.optionName === name || input.name === `options[${name}]` || input.name.trim() === name || input.name.trim() === `${name}-${index + 1}` || legend === name;
+        return this.optionName(input) === name;
       });
       if (control) this.values[index] = control.value;
     });

@@ -337,6 +337,25 @@ test('changing sizes does not reset the selected mount', () => {
   assert.deepEqual(preview.values, ['Metal', '8x8', 'Float Mount']);
 });
 
+test('Flow size swatches update the preview without resetting the selected mount', () => {
+  const preview = new Preview();
+  preview.product = { optionNames: ['Print Type', 'Sizes', 'Mounts and Frames'] };
+  preview.values = ['Metal', '8x8', 'Float Mount'];
+  const radio = (name, value, checked) => ({
+    type: 'radio', name: 'option-2-section', value, checked, dataset: {},
+    closest: (selector) => selector === '[data-option]' ? { dataset: { option: name } } : null,
+  });
+  const size = radio('Sizes', '8x10', true);
+  const inputs = [radio('Print Type', 'Metal', true), radio('Sizes', '8x8', false), size, radio('Mounts and Frames', 'Float Mount', true)];
+  preview.scope = {
+    querySelector: () => ({ value: '2' }),
+    querySelectorAll: (selector) => selector === 'select, input[type="radio"]' ? inputs : [],
+  };
+  preview.resetPrintTypeOptions({ target: size });
+  preview.readOptions();
+  assert.deepEqual(preview.values, ['Metal', '8x10', 'Float Mount']);
+});
+
 test('size changes use the confirmed variant while old and new theme selectors coexist', () => {
   const preview = new Preview();
   preview.product = { optionNames: ['Print Type', 'Sizes', 'Mounts and Frames'] };
