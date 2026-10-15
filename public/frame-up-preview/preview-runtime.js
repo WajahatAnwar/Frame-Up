@@ -1,4 +1,4 @@
-import * as model from './preview-model.js?v=53';
+import * as model from './preview-model.js?v=55';
 const { number, clamp } = model;
 
 export default class FrameUpPreview extends HTMLElement {

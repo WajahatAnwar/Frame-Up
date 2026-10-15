@@ -12,7 +12,7 @@ export function roomPreviewDimensions(width, height, viewport, image, wallWidth 
 export class PreviewInteraction {
   constructor(values = {}) {
     this.settings = {
-      tiltY: clamp(number(values.tiltY, 12), 0, 25),
+      tiltY: clamp(number(values.tiltY, 15), 0, 25),
       minZoom: clamp(number(values.minZoom, 1), .5, 1), maxZoom: clamp(number(values.maxZoom, 3), 1, 6),
       zoomSpeed: clamp(number(values.zoomSpeed, .002), .0001, .01),
       movement: clamp(number(values.movement, 1), 0, 1), damping: clamp(number(values.damping, 10), 1, 30),

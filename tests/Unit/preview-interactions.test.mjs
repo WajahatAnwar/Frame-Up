@@ -29,7 +29,7 @@ test('clicked magnifier zooms out on exit, resumes on entry, and second click re
   settle(interaction);
   assert.equal(interaction.magnifierEnabled, false);
   assert.equal(interaction.state.zoom, 1);
-  assert.equal(interaction.state.tiltY, 6);
+  assert.equal(interaction.state.tiltY, 7.5);
   interaction.leave();
   settle(interaction);
   interaction.pointer(.5, -.5);
@@ -73,14 +73,14 @@ test('center is straight, edge tilt is bounded, and leaving settles at zero', ()
   interaction.pointer(8, -8);
   interaction.step(1 / 60);
   assert.equal(interaction.state.tiltX, 0);
-  assert.ok(interaction.state.tiltY < 0 && interaction.state.tiltY > -12);
+  assert.ok(interaction.state.tiltY < 0 && interaction.state.tiltY > -15);
   settle(interaction);
   assert.equal(interaction.state.tiltX, 0);
-  assert.equal(interaction.state.tiltY, -12);
+  assert.equal(interaction.state.tiltY, -15);
   interaction.pointer(-1, 1);
   settle(interaction);
   assert.equal(interaction.state.tiltX, 0);
-  assert.equal(interaction.state.tiltY, 12);
+  assert.equal(interaction.state.tiltY, 15);
   interaction.pointer(-1, -1);
   assert.equal(interaction.step(1 / 60), false, 'moving vertically must not change the hover angle');
   interaction.leave();
