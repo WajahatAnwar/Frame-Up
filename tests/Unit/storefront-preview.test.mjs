@@ -500,6 +500,44 @@ test('an older Horizon response cannot replace a newer selected size', async () 
   assert.equal(preview.values[1], '8x8');
 });
 
+test('rapid option changes keep the latest intent despite stale theme DOM and completed responses', async () => {
+  const preview = new Preview();
+  preview.product = { id: '123', optionNames: ['Print Type', 'Sizes', 'Mounts and Frames'] };
+  preview.values = ['Metal', '4x6', 'Stand'];
+  preview.scope = { contains: () => true };
+  preview.isConnected = true;
+  preview.render = () => {};
+  preview.filterPrintTypeOptions = () => {};
+  preview.latestSelection = [...preview.values];
+  const change = (name, value) => preview.onOptionChange({ target: { dataset: { optionName: name }, value } });
+  change('Sizes', '8x8');
+  change('Sizes', '16x20');
+  change('Mounts and Frames', 'Frame');
+  const response = (options) => preview.onProductSelect({ target: {}, promise: Promise.resolve({ detail: { productId: '123', resource: { options } } }) });
+  await response(['Metal', '16x20', 'Frame']);
+  await response(['Metal', '8x8', 'Stand']);
+  preview.readOptions();
+  assert.deepEqual(preview.values, ['Metal', '16x20', 'Frame']);
+  assert.equal(preview.matchesLatestSelection(['Metal', '4x6', 'Stand']), false);
+  change('Sizes', '4x6');
+  assert.deepEqual(preview.values, ['Metal', '4x6', 'Frame']);
+});
+
+test('a response started before the latest input cannot overwrite that input', async () => {
+  const preview = new Preview();
+  preview.product = { id: '123', optionNames: ['Sizes'] };
+  preview.values = ['4x6'];
+  preview.latestSelection = ['4x6'];
+  preview.scope = { contains: () => true };
+  preview.isConnected = true;
+  let finish;
+  const pending = preview.onProductSelect({ target: {}, promise: new Promise((resolve) => { finish = resolve; }) });
+  preview.onOptionChange({ target: { dataset: { optionName: 'Sizes' }, value: '8x8' } });
+  finish({ detail: { productId: '123', resource: { options: ['4x6'] } } });
+  await pending;
+  assert.deepEqual(preview.values, ['8x8']);
+});
+
 test('a collapsed stage keeps the native image visible until a drawable layout is available', () => {
   const preview = new Preview();
   preview.isConnected = true;
