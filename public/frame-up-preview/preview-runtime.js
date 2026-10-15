@@ -126,7 +126,7 @@ export default class FrameUpPreview extends HTMLElement {
       else if (event.key === 'Escape') { this.interaction.magnifierEnabled = false; this.setZoom(1); }
     });
     // Reset dependent controls before the theme reads its selected option IDs.
-    this.listen(this.scope, 'change', (event) => this.resetPrintTypeOptions(event), { capture: true });
+    this.listen(this.scope, 'change', (event) => this.onOptionChange(event), { capture: true });
     for (const name of ['pointerenter', 'pointermove']) this.listen(this.stage, name, (event) => {
       if (this.mode !== 'spatial' || event.pointerType === 'touch') return;
       this.updateZoomFocus(event);
@@ -161,6 +161,7 @@ export default class FrameUpPreview extends HTMLElement {
         if (!variant || !Array.isArray(variant.options)) return;
         if (variant.product_id && String(variant.product_id) !== this.product.id) return;
         if (!variant.product_id && !this.scope.contains(event.target)) return;
+        if (!this.matchesLatestSelection(variant.options)) return;
         this.variant = variant;
         this.values = variant.options;
         this.render();
@@ -285,6 +286,20 @@ export default class FrameUpPreview extends HTMLElement {
     this.changeTimer = setTimeout(() => this.render(), 80);
   }
 
+  onOptionChange(event) {
+    const index = this.product.optionNames.indexOf(this.optionName(event.target));
+    if (index < 0) return;
+    this.readOptions();
+    this.resetPrintTypeOptions(event);
+    this.values[index] = event.target.value;
+    this.latestSelection = [...this.values];
+    this.selectionRequest = (this.selectionRequest ?? 0) + 1;
+  }
+
+  matchesLatestSelection(options) {
+    return !this.latestSelection || this.latestSelection.every((value, index) => options[index] === value);
+  }
+
   optionName(control) {
     return control.dataset?.optionName || control.closest('[data-option]')?.dataset?.option || control.closest('fieldset')?.querySelector('legend')?.textContent.trim().replace(/:\s*$/, '')
       || this.product.optionNames.find((name, index) => [name, `options[${name}]`, `${name}-${index + 1}`].includes(control.name?.trim()));
@@ -343,6 +358,7 @@ export default class FrameUpPreview extends HTMLElement {
       if (String(result.detail?.productId) !== this.product.id) return;
       const variant = result.detail?.resource;
       if (!Array.isArray(variant?.options)) return;
+      if (!this.matchesLatestSelection(variant.options)) return;
       this.variant = variant;
       this.values = [...variant.options];
       this.pendingPrintType = null;
@@ -373,6 +389,10 @@ export default class FrameUpPreview extends HTMLElement {
 
   readOptions() {
     if (!this.scope) return;
+    if (this.latestSelection) {
+      this.values = [...this.latestSelection];
+      return;
+    }
     const formId = this.scope.querySelector('form[action*="/cart/add"] [name="id"]')?.value;
     for (const json of this.scope.querySelectorAll('variant-selects [data-selected-variant], variant-picker script[type="application/json"]')) {
       try {
