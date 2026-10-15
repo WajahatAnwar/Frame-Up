@@ -6,6 +6,73 @@ import { disposePrint } from '../../resources/js/StorefrontPreview/print-model.j
 import { appearance } from '../../public/frame-up-preview/preview-model.js';
 import { buildRoomContactShadow } from '../../resources/js/StorefrontPreview/room-scene.js';
 
+test('startup requests HDR, artwork and surface together and disposes late textures after failure', async () => {
+  const originalFetch = globalThis.fetch;
+  const originalLoad = THREE.TextureLoader.prototype.loadAsync;
+  const started = [];
+  const pending = [];
+  globalThis.fetch = async () => { started.push('hdr'); return { ok: false }; };
+  THREE.TextureLoader.prototype.loadAsync = (url) => {
+    started.push(url);
+    return new Promise((resolve) => pending.push(resolve));
+  };
+  const preview = Object.create(SpatialPreview.prototype);
+  preview.dispose = () => { preview.disposed = true; };
+  let disposed = 0;
+  try {
+    const loading = preview.load('artwork', 'hdr', 'surface', new AbortController().signal);
+    assert.deepEqual(started, ['hdr', 'artwork', 'surface']);
+    await assert.rejects(loading, /lighting environment could not be loaded/);
+    for (const resolve of pending) {
+      const texture = new THREE.Texture();
+      texture.addEventListener('dispose', () => { disposed++; });
+      resolve(texture);
+    }
+    await Promise.resolve();
+    assert.equal(disposed, 2);
+    assert.equal(preview.artwork, undefined);
+  } finally {
+    globalThis.fetch = originalFetch;
+    THREE.TextureLoader.prototype.loadAsync = originalLoad;
+  }
+});
+
+test('high-resolution upgrade retains the first artwork until ready and ignores completion after disposal', async () => {
+  const originalLoad = THREE.TextureLoader.prototype.loadAsync;
+  let finish;
+  THREE.TextureLoader.prototype.loadAsync = () => new Promise((resolve) => { finish = resolve; });
+  const preview = Object.create(SpatialPreview.prototype);
+  const initial = new THREE.Texture();
+  preview.artwork = initial;
+  preview.key = 'first-model';
+  preview.renderer = { capabilities: { getMaxAnisotropy: () => 8 } };
+  let disposed = 0;
+  initial.addEventListener('dispose', () => { disposed++; });
+  try {
+    const loading = preview.upgradeArtwork('high-resolution');
+    assert.equal(preview.artwork, initial);
+    const high = new THREE.Texture();
+    finish(high);
+    await loading;
+    assert.equal(preview.artwork, high);
+    assert.equal(preview.key, null);
+    assert.equal(high.colorSpace, THREE.SRGBColorSpace);
+    assert.equal(high.anisotropy, 8);
+    assert.equal(disposed, 1);
+    const late = preview.upgradeArtwork('another-image');
+    preview.disposed = true;
+    const unused = new THREE.Texture();
+    unused.addEventListener('dispose', () => { disposed++; });
+    finish(unused);
+    await late;
+    assert.equal(preview.artwork, high);
+    assert.equal(disposed, 2);
+    high.dispose();
+  } finally {
+    THREE.TextureLoader.prototype.loadAsync = originalLoad;
+  }
+});
+
 test('matte rest and zoom keep the HDR-lit artwork material and crop while restoring gloss on hover', () => {
   const preview = Object.create(SpatialPreview.prototype);
   preview.artwork = new THREE.Texture({ width: 1600, height: 2400 });
@@ -104,11 +171,11 @@ test('room contact shadow follows the complete product bounds with transparent s
   const bounds = new THREE.Box3(new THREE.Vector3(-12, -18, -.5), new THREE.Vector3(12, 18, .5));
   const shadow = buildRoomContactShadow(bounds);
   try {
-    assert.ok(Math.abs(shadow.geometry.parameters.width - 28.8) < 1e-8);
+    assert.ok(Math.abs(shadow.geometry.parameters.width - 30.24) < 1e-8);
     assert.ok(shadow.position.x > 0 && shadow.position.y < 0, 'shadow falls slightly right and below the product');
     assert.ok(shadow.position.z < bounds.min.z && shadow.position.z > bounds.min.z - .06, 'shadow sits between the product and wall');
     const { data, width } = shadow.material.map.image;
-    assert.equal(data[(64 * width + 64) * 4 + 3], 54);
+    assert.equal(data[(64 * width + 64) * 4 + 3], 60);
     assert.equal(data[3], 0);
     assert.equal(shadow.material.depthWrite, false);
     assert.equal(shadow.material.toneMapped, false);

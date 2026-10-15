@@ -6,6 +6,72 @@ globalThis.cancelAnimationFrame = () => {};
 const { default: Preview } = await import('../../public/frame-up-preview/preview-runtime.js');
 const { PreviewInteraction, roomPreviewDimensions } = await import('../../public/frame-up-preview/preview-model.js');
 
+test('an initialization that returns without a preview clears the startup loader', async () => {
+  const preview = new Preview();
+  preview.hidden = true;
+  preview.init = async () => {};
+  let cleared = 0;
+  preview.finishLoading = () => { cleared++; };
+  preview.connectedCallback();
+  await Promise.resolve();
+  assert.equal(cleared, 1);
+});
+
+test('falling back to the native product gallery clears the startup loader', () => {
+  const preview = new Preview();
+  let cleared = 0;
+  let restored = 0;
+  preview.finishLoading = () => { cleared++; };
+  preview.gallery = { removeAttribute: () => {}, querySelectorAll: () => [{ removeAttribute: () => { restored++; } }] };
+  preview.restoreGallery();
+  assert.equal(cleared, 1);
+  assert.equal(restored, 1);
+  assert.equal(preview.hidden, true);
+});
+
+test('room assets load in the background and enable room view only when ready', async () => {
+  const preview = new Preview();
+  let finish;
+  preview.roomImage = { src: '/room.jpg' };
+  preview.dataset = { roomScene: 'image' };
+  preview.toggle = { disabled: false };
+  preview.stage = { dataset: {} };
+  preview.controller = new AbortController();
+  preview.isConnected = true;
+  preview.mode = 'spatial';
+  preview.spatial = { loadRoom: () => new Promise((resolve) => { finish = resolve; }) };
+  let renders = 0;
+  preview.render = () => { renders++; };
+
+  preview.loadRoomInBackground();
+  assert.equal(preview.toggle.disabled, true);
+  assert.equal(preview.stage.dataset.roomRenderer, undefined);
+  finish();
+  await preview.roomReady;
+  assert.equal(preview.toggle.disabled, false);
+  assert.equal(preview.stage.dataset.roomRenderer, 'webgl');
+  assert.equal(renders, 0, 'the initial 3D view must not be rebuilt after the room finishes');
+});
+
+test('late room asset completion does not touch a disconnected preview', async () => {
+  const preview = new Preview();
+  let finish;
+  preview.roomImage = { src: '/room.jpg' };
+  preview.dataset = {};
+  preview.toggle = {};
+  preview.stage = { dataset: {} };
+  preview.controller = new AbortController();
+  preview.isConnected = true;
+  preview.spatial = { loadRoom: () => new Promise((resolve) => { finish = resolve; }) };
+  preview.loadRoomInBackground();
+  preview.controller.abort();
+  preview.isConnected = false;
+  finish();
+  await preview.roomReady;
+  assert.equal(preview.stage.dataset.roomRenderer, undefined);
+  assert.equal(preview.toggle.disabled, true);
+});
+
 test('finish effects are enabled only during normal 3D hover', () => {
   const preview = new Preview();
   preview.interaction = new PreviewInteraction();

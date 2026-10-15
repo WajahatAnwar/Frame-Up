@@ -1,5 +1,11 @@
 {% if request.page_type == 'product' and product != blank and product.featured_image != blank %}
   {% assign preview_assets = block.settings.proxy_path | default: '/apps/frame-up' | append: '/assets/' %}
+  <style>
+    .frame-up-loading { position: absolute; inset: 0; z-index: 3; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 24px; background: #ffffffd9; color: #454545; font: inherit; font-size: 14px; text-align: center; pointer-events: none; }
+    .frame-up-loading::before { content: ''; width: 26px; height: 26px; border: 2px solid #d6d6d6; border-top-color: #454545; border-radius: 50%; animation: frame-up-loading-spin 800ms linear infinite; }
+    @keyframes frame-up-loading-spin { to { transform: rotate(360deg); } }
+    @media (prefers-reduced-motion: reduce) { .frame-up-loading::before { animation: none; } }
+  </style>
   <frame-up-preview
     hidden
     data-proxy-path="{{ block.settings.proxy_path | escape }}"
@@ -9,8 +15,8 @@
     data-room-scale="2"
     data-room-center-x="{{ block.settings.room_center_x | default: 47 }}"
     data-room-center-y="{{ block.settings.room_center_y | default: 38 }}"
-    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=49' | escape }}"
-    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=49' | escape }}"
+    data-runtime-url="{{ preview_assets | append: 'preview-runtime.js?v=52' | escape }}"
+    data-webgl-url="{{ preview_assets | append: 'preview-webgl.js?v=52' | escape }}"
     data-tilt-y="12"
     data-min-zoom="1"
     data-max-zoom="3"
@@ -27,6 +33,7 @@
         "handle": {{ product.handle | json }},
         "title": {{ product.title | json | replace: '<', '\u003c' }},
         "image": {{ product.featured_image | image_url: width: 5760 | json }},
+        "previewImage": {{ product.featured_image | image_url: width: 1600 | json }},
         "imageWidth": {{ product.featured_image.width | json }},
         "imageHeight": {{ product.featured_image.height | json }},
         "optionNames": {{ product.options | json | replace: '<', '\u003c' }},
@@ -61,10 +68,54 @@
     (async (host) => {
       if (!host || host.dataset.loading) return;
       host.dataset.loading = 'true';
+      let previewStarted = false;
+      let loader, gallery, loadingTimer, originalPosition, originalBusy;
+      host.finishLoading = () => {
+        clearTimeout(loadingTimer);
+        loader?.remove();
+        loader = null;
+        if (gallery) {
+          if (originalPosition !== undefined) gallery.style.position = originalPosition;
+          if (originalBusy === null) gallery.removeAttribute('aria-busy');
+          else gallery.setAttribute('aria-busy', originalBusy);
+          gallery = null;
+        }
+      };
+      host.findPreviewGallery = () => {
+        const main = document.querySelector('main') || document;
+        const selectors = host.dataset.mediaSelector ? [host.dataset.mediaSelector] : [
+          '.product__media-wrapper', '.product-information__media', '[data-testid="product-information-media"]',
+          '[data-product-media-gallery]', 'media-gallery', '[id^="MediaGallery-"]', '.product-gallery', '.product-media',
+        ];
+        for (const selector of selectors) {
+          try {
+            const element = main.querySelector(selector);
+            if (element && !host.contains(element)) return element;
+          } catch { return null; }
+        }
+        return null;
+      };
       try {
         const proxy = (host.dataset.proxyPath || '/apps/frame-up').replace(/\/$/, '');
         if (!/^\/(apps|a|community|tools)\/[\w-]+$/.test(proxy)) return;
         const product = JSON.parse(host.querySelector('[data-frame-up-product]').textContent);
+        if (!product.type || !product.image) return;
+        gallery = host.findPreviewGallery();
+        if (gallery) {
+          originalBusy = gallery.getAttribute('aria-busy');
+          gallery.setAttribute('aria-busy', 'true');
+          if (getComputedStyle(gallery).position === 'static') {
+            originalPosition = gallery.style.position;
+            gallery.style.position = 'relative';
+          }
+          loader = document.createElement('div');
+          loader.className = 'frame-up-loading';
+          loader.setAttribute('role', 'status');
+          loader.setAttribute('aria-live', 'polite');
+          loader.textContent = 'Loading product configuration…';
+          gallery.append(loader);
+          loadingTimer = setTimeout(host.finishLoading, 20000);
+        }
         const query = new URLSearchParams({ product_id: product.id, product_type: product.type });
         const response = await fetch(`${proxy}/preview?${query}`, { headers: { Accept: 'application/json' } });
         if (!response.ok) return;
@@ -77,18 +128,23 @@
         host.append(config);
         const stylesheet = document.createElement('link');
         stylesheet.rel = 'stylesheet';
-        stylesheet.href = `${proxy}/assets/product-preview.css?v=49`;
-        await new Promise((resolve, reject) => {
+        stylesheet.href = `${proxy}/assets/product-preview.css?v=52`;
+        const stylesReady = new Promise((resolve, reject) => {
           stylesheet.onload = resolve;
           stylesheet.onerror = reject;
           document.head.append(stylesheet);
         });
-        const script = document.createElement('script');
-        script.src = `${proxy}/assets/product-preview.js?v=49`;
-        script.defer = true;
-        document.head.append(script);
+        const [{ default: Preview }, { default: SpatialPreview }] = await Promise.all([
+          import(host.dataset.runtimeUrl), import(host.dataset.webglUrl), stylesReady,
+        ]);
+        host.SpatialPreview = SpatialPreview;
+        previewStarted = true;
+        if (!customElements.get('frame-up-preview')) customElements.define('frame-up-preview', Preview);
       } catch (error) {
+        previewStarted = false;
         console.warn('Frame Up preview assets could not be loaded.', error);
+      } finally {
+        if (!previewStarted) host.finishLoading();
       }
     })(document.currentScript.previousElementSibling);
   </script>

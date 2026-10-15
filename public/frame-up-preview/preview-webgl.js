@@ -10749,12 +10749,12 @@ function Js(e) {
 function Ys(e) {
 	let t = /* @__PURE__ */ new Uint8Array(65536);
 	for (let e = 0; e < 128; e++) for (let n = 0; n < 128; n++) {
-		let r = Math.max(0, Math.abs((n + .5) / 128 - .5) - .36), i = Math.max(0, Math.abs((e + .5) / 128 - .5) - .36), a = Math.exp(-(r * r + i * i) / .00405);
-		t[(e * 128 + n) * 4 + 3] = Math.round(a * 54);
+		let r = Math.max(0, Math.abs((n + .5) / 128 - .5) - .36), i = Math.max(0, Math.abs((e + .5) / 128 - .5) - .36), a = Math.exp(-r * r / .00605 - i * i / .00405);
+		t[(e * 128 + n) * 4 + 3] = Math.round(a * 60);
 	}
 	let n = new _o(t, 128, 128);
 	n.magFilter = n.minFilter = i, n.needsUpdate = !0;
-	let r = e.getSize(new J()), a = e.getCenter(new J()), o = new X(new hr(r.x * 1.2, r.y * 1.2), new an({
+	let r = e.getSize(new J()), a = e.getCenter(new J()), o = new X(new hr(r.x * 1.26, r.y * 1.2), new an({
 		map: n,
 		transparent: !0,
 		depthWrite: !1,
@@ -10772,14 +10772,31 @@ var Xs = class {
 		}), this.renderer.setPixelRatio(Math.min(devicePixelRatio || 1, 2)), this.renderer.outputColorSpace = x, this.renderer.toneMapping = 4, this.renderer.toneMappingExposure = Hs.exposure, this.renderer.setClearColor(16777215, 0), this.renderer.shadowMap.enabled = !0, this.renderer.shadowMap.type = 2, this.scene = new go(), this.camera = new er(50, 1, .01, 1e3), this.renderer.domElement.setAttribute("aria-hidden", "true");
 	}
 	async load(n, r, i, a) {
-		let o = await fetch(r, { signal: a });
-		if (!o.ok) throw Error("The preview lighting environment could not be loaded.");
-		let s = new Vs().parse(await o.arrayBuffer());
-		this.hdr = new _o(s.data, s.width, s.height, d, s.type), this.hdr.mapping = 303, this.hdr.colorSpace = S, this.hdr.flipY = !0, this.hdr.needsUpdate = !0;
-		let c = new Ir(this.renderer);
-		this.environment = c.fromEquirectangular(this.hdr), c.dispose(), this.scene.environment = this.environment.texture;
-		let l = new ys();
-		return this.artwork = await l.loadAsync(n), this.artwork.colorSpace = x, this.artwork.wrapS = this.artwork.wrapT = t, this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy(), i && (this.surfaceTexture = await l.loadAsync(i), this.surfaceTexture.wrapS = this.surfaceTexture.wrapT = e), a.aborted || this.disposed ? (this.dispose(), !1) : (this.container.replaceChildren(this.renderer.domElement), !0);
+		let o = new ys(), s = async (e, t) => {
+			let n = await o.loadAsync(e);
+			if (a.aborted || this.disposed) {
+				n.dispose();
+				return;
+			}
+			this[t] = n;
+		}, c;
+		try {
+			[c] = await Promise.all([
+				fetch(r, { signal: a }).then((e) => {
+					if (!e.ok) throw Error("The preview lighting environment could not be loaded.");
+					return e.arrayBuffer();
+				}),
+				s(n, "artwork"),
+				i ? s(i, "surfaceTexture") : Promise.resolve()
+			]);
+		} catch (e) {
+			throw this.dispose(), e;
+		}
+		if (a.aborted || this.disposed) return this.dispose(), !1;
+		let l = new Vs().parse(c);
+		this.hdr = new _o(l.data, l.width, l.height, d, l.type), this.hdr.mapping = 303, this.hdr.colorSpace = S, this.hdr.flipY = !0, this.hdr.needsUpdate = !0;
+		let u = new Ir(this.renderer);
+		return this.environment = u.fromEquirectangular(this.hdr), u.dispose(), this.scene.environment = this.environment.texture, this.artwork.colorSpace = x, this.artwork.wrapS = this.artwork.wrapT = t, this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy(), i && (this.surfaceTexture.wrapS = this.surfaceTexture.wrapT = e), a.aborted || this.disposed ? (this.dispose(), !1) : (this.container.replaceChildren(this.renderer.domElement), !0);
 	}
 	async loadRoom(e) {
 		let t = await new ys().loadAsync(e);
@@ -10793,6 +10810,16 @@ var Xs = class {
 			depthWrite: !1,
 			toneMapped: !1
 		})), this.roomBackground.add(this.roomBackgroundMesh);
+	}
+	async upgradeArtwork(e) {
+		let n = await new ys().loadAsync(e);
+		if (this.disposed) {
+			n.dispose();
+			return;
+		}
+		n.colorSpace = x, n.wrapS = n.wrapT = t, n.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+		let r = this.artwork;
+		this.artwork = n, this.key = null, r?.dispose();
 	}
 	captureViewState() {
 		return {
@@ -10883,7 +10910,7 @@ var Xs = class {
 		this.roomContactShadow &&= (this.scene.remove(this.roomContactShadow), this.roomContactShadow.geometry.dispose(), this.roomContactShadow.material.map.dispose(), this.roomContactShadow.material.dispose(), null), this.roomScene &&= (this.scene.remove(this.roomScene), Js(this.roomScene), null), this.wallShadow &&= (this.scene.remove(this.wallShadow), this.wallShadow.geometry.dispose(), this.wallShadow.material.dispose(), null), this.group && (this.scene.remove(this.group), Ks(this.group, [this.artwork, this.surfaceTexture])), this.finishProfiles = null, this.glassMesh = null, this.lights && (this.scene.remove(this.lights), this.lights.traverse((e) => e.shadow?.map?.dispose()));
 	}
 	dispose() {
-		this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.roomTexture?.dispose(), this.roomBackgroundMesh?.geometry.dispose(), this.roomBackgroundMesh?.material.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove();
+		this.disposed || (this.disposed = !0, this.clearModel(), this.artwork?.dispose(), this.surfaceTexture?.dispose(), this.hdr?.dispose(), this.roomTexture?.dispose(), this.roomBackgroundMesh?.geometry.dispose(), this.roomBackgroundMesh?.material.dispose(), this.environment?.dispose(), this.renderer.dispose(), this.renderer.forceContextLoss(), this.renderer.domElement.remove());
 	}
 };
 //#endregion

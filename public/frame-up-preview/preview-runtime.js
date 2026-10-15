@@ -10,7 +10,9 @@ export default class FrameUpPreview extends HTMLElement {
     this.started = true;
     this.controller = new AbortController();
     this.cleanups = [];
-    this.init().catch((error) => {
+    this.init().then(() => {
+      if (this.hidden) this.finishLoading?.();
+    }).catch((error) => {
       this.spatial?.dispose();
       this.restoreGallery();
       console.warn('Frame Up spatial preview could not be initialized.', error);
@@ -67,17 +69,18 @@ export default class FrameUpPreview extends HTMLElement {
     this.description = this.querySelector('[data-frame-up-description]');
     this.variant = this.product.selectedVariant;
     this.values = [...(this.variant?.options ?? [])];
-    const { default: SpatialPreview } = await import(this.dataset.webglUrl);
+    const SpatialPreview = this.SpatialPreview || (await import(this.dataset.webglUrl)).default;
     this.spatial = new SpatialPreview(this.querySelector('.frame-up-object'));
     const imageUrl = this.product.image.startsWith('//') ? `https:${this.product.image}` : this.product.image;
-    if (!await this.spatial.load(imageUrl, this.dataset.environmentUrl, this.dataset.surfaceTextureUrl, this.controller.signal)) return;
-    if (this.dataset.roomScene !== 'procedural' && (this.roomImage?.currentSrc || this.roomImage?.src)) {
-      try {
-        await this.spatial.loadRoom(this.roomImage.currentSrc || this.roomImage.src);
-        this.stage.dataset.roomRenderer = 'webgl';
-      } catch (error) {
-        console.warn('Frame Up room background could not be loaded.', error);
-      }
+    const previewImage = this.product.previewImage || this.product.image;
+    const previewImageUrl = previewImage.startsWith('//') ? `https:${previewImage}` : previewImage;
+    if (!await this.spatial.load(previewImageUrl, this.dataset.environmentUrl, this.dataset.surfaceTextureUrl, this.controller.signal)) return;
+    if (previewImageUrl !== imageUrl) {
+      this.spatial.upgradeArtwork(imageUrl).then(() => {
+        if (this.isConnected && !this.controller.signal.aborted) this.paintSpatial();
+      }).catch((error) => {
+        if (!this.controller.signal.aborted) console.warn('Frame Up high-resolution artwork could not be loaded.', error);
+      });
     }
     if (this.dataset.roomScene === 'procedural') this.stage.dataset.roomRenderer = 'webgl';
     this.stage.dataset.renderer = 'webgl';
@@ -180,11 +183,27 @@ export default class FrameUpPreview extends HTMLElement {
     this.resizeObserver.observe(this.gallery);
     this.filterPrintTypeOptions();
     this.render();
+    this.loadRoomInBackground();
   }
 
   listen(target, type, callback, options) {
     target.addEventListener(type, callback, options);
     this.cleanups.push(() => target.removeEventListener(type, callback, options));
+  }
+
+  loadRoomInBackground() {
+    const imageUrl = this.roomImage?.currentSrc || this.roomImage?.src;
+    if (this.dataset.roomScene === 'procedural' || !imageUrl) return;
+    this.toggle.disabled = true;
+    this.roomReady = this.spatial.loadRoom(imageUrl).then(() => {
+      if (this.controller.signal.aborted || this.spatial.disposed || !this.isConnected) return;
+      this.stage.dataset.roomRenderer = 'webgl';
+      if (this.mode === 'room') this.render();
+    }).catch((error) => {
+      if (!this.controller.signal.aborted) console.warn('Frame Up room background could not be loaded.', error);
+    }).finally(() => {
+      if (!this.controller.signal.aborted) this.toggle.disabled = false;
+    });
   }
 
   setZoom(value) {
@@ -331,6 +350,7 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   findGallery() {
+    if (this.findPreviewGallery) return this.findPreviewGallery();
     const main = document.querySelector('main') || document;
     if (this.dataset.mediaSelector) {
       try { return main.querySelector(this.dataset.mediaSelector); } catch { return null; }
@@ -419,6 +439,7 @@ export default class FrameUpPreview extends HTMLElement {
       '--side-color': appearance.sideColor, '--glass-opacity': String(appearance.glass),
     })) this.stage.style.setProperty(key, value);
     this.paintSpatial(selection, appearance, objectWidth, objectHeight);
+    this.finishLoading?.();
     for (const child of this.gallery.children) {
       if (child !== this) child.setAttribute('data-frame-up-original-media', '');
     }
@@ -459,6 +480,7 @@ export default class FrameUpPreview extends HTMLElement {
   }
 
   restoreGallery() {
+    this.finishLoading?.();
     this.hidden = true;
     this.gallery?.removeAttribute('data-frame-up-media-host');
     this.gallery?.querySelectorAll('[data-frame-up-original-media]').forEach((child) => child.removeAttribute('data-frame-up-original-media'));

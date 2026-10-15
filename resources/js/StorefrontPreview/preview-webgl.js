@@ -21,9 +21,28 @@ export default class SpatialPreview {
   }
 
   async load(imageUrl, hdrUrl, textureUrl, signal) {
-    const response = await fetch(hdrUrl, { signal });
-    if (!response.ok) throw new Error('The preview lighting environment could not be loaded.');
-    const hdr = new RGBELoader().parse(await response.arrayBuffer());
+    const textureLoader = new THREE.TextureLoader();
+    const loadTexture = async (url, key) => {
+      const texture = await textureLoader.loadAsync(url);
+      if (signal.aborted || this.disposed) { texture.dispose(); return; }
+      this[key] = texture;
+    };
+    let hdrBuffer;
+    try {
+      [hdrBuffer] = await Promise.all([
+        fetch(hdrUrl, { signal }).then((response) => {
+          if (!response.ok) throw new Error('The preview lighting environment could not be loaded.');
+          return response.arrayBuffer();
+        }),
+        loadTexture(imageUrl, 'artwork'),
+        textureUrl ? loadTexture(textureUrl, 'surfaceTexture') : Promise.resolve(),
+      ]);
+    } catch (error) {
+      this.dispose();
+      throw error;
+    }
+    if (signal.aborted || this.disposed) { this.dispose(); return false; }
+    const hdr = new RGBELoader().parse(hdrBuffer);
     this.hdr = new THREE.DataTexture(hdr.data, hdr.width, hdr.height, THREE.RGBAFormat, hdr.type);
     this.hdr.mapping = THREE.EquirectangularReflectionMapping;
     this.hdr.colorSpace = THREE.LinearSRGBColorSpace;
@@ -34,13 +53,10 @@ export default class SpatialPreview {
     pmrem.dispose();
     this.scene.environment = this.environment.texture;
     // The HDR illuminates the print, but is not the visible background.
-    const textureLoader = new THREE.TextureLoader();
-    this.artwork = await textureLoader.loadAsync(imageUrl);
     this.artwork.colorSpace = THREE.SRGBColorSpace;
     this.artwork.wrapS = this.artwork.wrapT = THREE.ClampToEdgeWrapping;
     this.artwork.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
     if (textureUrl) {
-      this.surfaceTexture = await textureLoader.loadAsync(textureUrl);
       this.surfaceTexture.wrapS = this.surfaceTexture.wrapT = THREE.RepeatWrapping;
     }
     if (signal.aborted || this.disposed) { this.dispose(); return false; }
@@ -60,6 +76,18 @@ export default class SpatialPreview {
     this.roomBackgroundMesh = new THREE.Mesh(new THREE.PlaneGeometry(2, 2),
       new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }));
     this.roomBackground.add(this.roomBackgroundMesh);
+  }
+
+  async upgradeArtwork(imageUrl) {
+    const texture = await new THREE.TextureLoader().loadAsync(imageUrl);
+    if (this.disposed) { texture.dispose(); return; }
+    texture.colorSpace = THREE.SRGBColorSpace;
+    texture.wrapS = texture.wrapT = THREE.ClampToEdgeWrapping;
+    texture.anisotropy = this.renderer.capabilities.getMaxAnisotropy();
+    const previous = this.artwork;
+    this.artwork = texture;
+    this.key = null;
+    previous?.dispose();
   }
 
   captureViewState() {
@@ -269,6 +297,7 @@ export default class SpatialPreview {
   }
 
   dispose() {
+    if (this.disposed) return;
     this.disposed = true;
     this.clearModel();
     this.artwork?.dispose();

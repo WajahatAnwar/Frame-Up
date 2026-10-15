@@ -75,8 +75,8 @@ export function buildRoomContactShadow(bounds) {
     for (let x = 0; x < resolution; x++) {
       const dx = Math.max(0, Math.abs((x + .5) / resolution - .5) - .36);
       const dy = Math.max(0, Math.abs((y + .5) / resolution - .5) - .36);
-      const alpha = Math.exp(-(dx * dx + dy * dy) / (.045 * .045 * 2));
-      data[(y * resolution + x) * 4 + 3] = Math.round(alpha * 54);
+      const alpha = Math.exp(-dx * dx / (.055 * .055 * 2) - dy * dy / (.045 * .045 * 2));
+      data[(y * resolution + x) * 4 + 3] = Math.round(alpha * 60);
     }
   }
   const texture = new THREE.DataTexture(data, resolution, resolution);
@@ -84,7 +84,7 @@ export function buildRoomContactShadow(bounds) {
   texture.needsUpdate = true;
   const size = bounds.getSize(new THREE.Vector3());
   const center = bounds.getCenter(new THREE.Vector3());
-  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(size.x * 1.2, size.y * 1.2),
+  const shadow = new THREE.Mesh(new THREE.PlaneGeometry(size.x * 1.26, size.y * 1.2),
     new THREE.MeshBasicMaterial({ map: texture, transparent: true, depthWrite: false, toneMapped: false }));
   shadow.position.set(center.x + size.x * .015, center.y - size.y * .02, bounds.min.z - .025);
   return shadow;
